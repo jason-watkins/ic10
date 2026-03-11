@@ -1,0 +1,11 @@
+pub mod diagnostic;
+pub mod lexer;
+pub mod ast;
+pub mod parser;
+pub mod resolve;
+pub mod crc32;
+pub mod cfg;
+pub mod ssa;
+pub mod opt;
+pub mod regalloc;
+pub mod codegen;
