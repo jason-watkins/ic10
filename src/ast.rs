@@ -1,11 +1,17 @@
 use crate::diagnostic::Span;
 
-/// The three IC20 surface types (§3).
+/// The three IC20 surface types (§3), plus `Unit` for void functions.
+///
+/// `Unit` is not a surface type — users cannot write it in annotations. It is
+/// used internally as the type of void-function call expressions and their
+/// symbols so that misusing the result of a void call is caught by the normal
+/// type checking rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Bool,
     I53,
     F64,
+    Unit,
 }
 
 /// A complete IC20 program: an ordered list of top-level items (§1.2).
