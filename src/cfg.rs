@@ -40,6 +40,17 @@ pub struct Function {
     pub immediate_dominators: HashMap<BlockId, BlockId>,
     /// Dominance frontier sets.
     pub dominance_frontiers: HashMap<BlockId, HashSet<BlockId>>,
+    /// Counter for allocating fresh TempIds beyond those already emitted.
+    pub next_temp: usize,
+}
+
+impl Function {
+    /// Allocate a fresh `TempId`, post-incrementing the internal counter.
+    pub fn fresh_temp(&mut self) -> TempId {
+        let id = TempId(self.next_temp);
+        self.next_temp += 1;
+        id
+    }
 }
 
 /// A basic block: a linear sequence of instructions ending with a terminator.
@@ -786,6 +797,7 @@ fn lower_function(
         variable_temps: builder.variable_temps,
         immediate_dominators: HashMap::new(),
         dominance_frontiers: HashMap::new(),
+        next_temp: builder.next_temp,
     };
 
     compute_dominators(&mut cfg_function);
