@@ -6,7 +6,7 @@ use crate::diagnostic::Span;
 /// used internally as the type of void-function call expressions and their
 /// symbols so that misusing the result of a void call is caught by the normal
 /// type checking rules.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
     Bool,
     I53,
@@ -264,7 +264,7 @@ pub enum LiteralKind {
 }
 
 /// Binary operators, in precedence order from low to high (§5.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOperator {
     // Precedence1 – logical OR
     Or,
@@ -296,7 +296,7 @@ pub enum BinaryOperator {
 }
 
 /// Unary operators (§5.7).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOperator {
     /// Arithmetic negation `-x` (`i53` or `f64`).
     Neg,
