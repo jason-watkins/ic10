@@ -2,8 +2,8 @@ use crate::ast::{
     AssignStatement, AssignmentTarget, BatchMode, BinaryOperator, Block, BuiltinFunction,
     CallExpression, ConstDeclaration, DeviceDeclaration, DevicePin, ElseClause, Expression,
     ExpressionKind, ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement, Item,
-    LetStatement, LiteralKind, LoopStatement, Parameter, Program, ReturnStatement, SleepStatement,
-    Statement, Type, UnaryOperator, WhileStatement,
+    LetStatement, LiteralKind, Parameter, Program, ReturnStatement, SleepStatement, Statement,
+    Type, UnaryOperator, WhileStatement,
 };
 use crate::diagnostic::{Diagnostic, Span};
 use crate::lexer::{Keyword, Literal, Operator, Punctuator, Token, TokenKind};
@@ -355,7 +355,7 @@ impl Parser {
         let result = match self.peek_kind() {
             TokenKind::Keyword(Keyword::Let) => self.parse_let_statement().map(Statement::Let),
             TokenKind::Keyword(Keyword::If) => self.parse_if_statement().map(Statement::If),
-            TokenKind::Keyword(Keyword::Loop) => self.parse_loop_statement().map(Statement::Loop),
+            TokenKind::Keyword(Keyword::Loop) => self.parse_loop_statement().map(Statement::While),
             TokenKind::Keyword(Keyword::While) => {
                 self.parse_while_statement().map(Statement::While)
             }
@@ -521,12 +521,16 @@ impl Parser {
         }
     }
 
-    /// Parse a `loop` statement (§6.6).
-    fn parse_loop_statement(&mut self) -> Result<LoopStatement, ()> {
+    /// Parse a `loop` statement (§6.6) and desugar it to `while true { … }`.
+    fn parse_loop_statement(&mut self) -> Result<WhileStatement, ()> {
         let start = self.expect(&TokenKind::Keyword(Keyword::Loop))?;
         let body = self.parse_block()?;
         let span = Span::new(start.start, body.span.end);
-        Ok(LoopStatement { body, span })
+        let cond = Expression {
+            kind: ExpressionKind::Literal(LiteralKind::Bool(true)),
+            span: Span::new(start.start, start.end),
+        };
+        Ok(WhileStatement { cond, body, span })
     }
 
     /// Parse a `while` statement (§6.7).
@@ -1418,21 +1422,29 @@ mod tests {
     #[test]
     fn loop_statement_with_break() {
         let statements = fn_statements("fn f() { loop { break; } }");
-        if let Statement::Loop(statement) = &statements[0] {
+        if let Statement::While(statement) = &statements[0] {
+            assert!(matches!(
+                statement.cond.kind,
+                ExpressionKind::Literal(LiteralKind::Bool(true))
+            ));
             assert_eq!(statement.body.stmts.len(), 1);
             assert!(matches!(statement.body.stmts[0], Statement::Break(_)));
         } else {
-            panic!("expected loop statement");
+            panic!("expected while statement (desugared loop)");
         }
     }
 
     #[test]
     fn loop_statement_with_continue() {
         let statements = fn_statements("fn f() { loop { continue; } }");
-        if let Statement::Loop(statement) = &statements[0] {
+        if let Statement::While(statement) = &statements[0] {
+            assert!(matches!(
+                statement.cond.kind,
+                ExpressionKind::Literal(LiteralKind::Bool(true))
+            ));
             assert!(matches!(statement.body.stmts[0], Statement::Continue(_)));
         } else {
-            panic!("expected loop statement");
+            panic!("expected while statement (desugared loop)");
         }
     }
 
@@ -1499,20 +1511,20 @@ mod tests {
     #[test]
     fn break_statement() {
         let statements = fn_statements("fn f() { loop { break; } }");
-        if let Statement::Loop(statement) = &statements[0] {
+        if let Statement::While(statement) = &statements[0] {
             assert!(matches!(statement.body.stmts[0], Statement::Break(_)));
         } else {
-            panic!("expected loop with break");
+            panic!("expected while statement (desugared loop)");
         }
     }
 
     #[test]
     fn continue_statement() {
         let statements = fn_statements("fn f() { loop { continue; } }");
-        if let Statement::Loop(statement) = &statements[0] {
+        if let Statement::While(statement) = &statements[0] {
             assert!(matches!(statement.body.stmts[0], Statement::Continue(_)));
         } else {
-            panic!("expected loop with continue");
+            panic!("expected while statement (desugared loop)");
         }
     }
 
@@ -2200,11 +2212,11 @@ mod tests {
     #[test]
     fn nested_if_inside_loop() {
         let statements = fn_statements("fn f() { loop { if x { break; } } }");
-        if let Statement::Loop(loop_statement) = &statements[0] {
+        if let Statement::While(loop_statement) = &statements[0] {
             assert_eq!(loop_statement.body.stmts.len(), 1);
             assert!(matches!(loop_statement.body.stmts[0], Statement::If(_)));
         } else {
-            panic!("expected loop");
+            panic!("expected while statement (desugared loop)");
         }
     }
 

@@ -89,9 +89,7 @@ pub enum Statement {
     Expression(ExpressionStatement),
     /// `if expr { … } [else { … }]` (§6.5).
     If(IfStatement),
-    /// `loop { … }` (§6.6).
-    Loop(LoopStatement),
-    /// `while expr { … }` (§6.7).
+    /// `while cond { … }`; also the desugared form of `loop { … }` (§6.6, §6.7).
     While(WhileStatement),
     /// `for ident in expr..expr { … }` (§6.8).
     For(ForStatement),
@@ -171,14 +169,7 @@ pub enum ElseClause {
     If(Box<IfStatement>),
 }
 
-/// `loop { body }`
-#[derive(Debug, Clone)]
-pub struct LoopStatement {
-    pub body: Block,
-    pub span: Span,
-}
-
-/// `while cond { body }`
+/// `while cond { body }`; also the desugared form of `loop { body }`
 #[derive(Debug, Clone)]
 pub struct WhileStatement {
     pub cond: Expression,

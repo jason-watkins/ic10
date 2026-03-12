@@ -52,6 +52,7 @@
         "brnez",
         "clrd",
         "codegen",
+        "desugared",
         "getd",
         "hexdigit",
         "inlines",
