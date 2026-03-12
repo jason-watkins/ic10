@@ -95,6 +95,24 @@ pub enum Statement {
     Sleep(SleepStatement),
 }
 
+impl Statement {
+    pub fn span(&self) -> Span {
+        match self {
+            Statement::Let(s) => s.span,
+            Statement::Assign(s) => s.span,
+            Statement::Expression(s) => s.span,
+            Statement::If(s) => s.span,
+            Statement::While(s) => s.span,
+            Statement::For(s) => s.span,
+            Statement::Break(span) => *span,
+            Statement::Continue(span) => *span,
+            Statement::Return(s) => s.span,
+            Statement::Yield(span) => *span,
+            Statement::Sleep(s) => s.span,
+        }
+    }
+}
+
 /// `let [mut] name [: Type] = expr;`
 #[derive(Debug, Clone)]
 pub struct LetStatement {
