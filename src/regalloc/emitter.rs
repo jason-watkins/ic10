@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::{BinaryOperator, BuiltinFunction, Type, UnaryOperator};
 use crate::cfg::{BasicBlock, BlockId, Function, Instruction, Operation, TempId, Terminator};
@@ -9,6 +9,24 @@ use super::calling_convention::{CallingConventionInfo, FunctionClass};
 use super::ic10::{IC10Function, IC10Instruction, JumpTarget, Operand, Register};
 use super::liveness::{LinearMap, LinearPosition};
 
+/// Metadata about a call site emitted into the IC10 instruction stream.
+///
+/// Used by the caller-save post-pass to insert push/pop instructions around calls.
+pub struct EmittedCallSite {
+    /// Index in the instruction list where the call sequence begins (before arg-setup moves).
+    pub sequence_start: usize,
+    /// Index in the instruction list after the call sequence ends (after return-value move).
+    pub sequence_end: usize,
+    /// Name of the function being called.
+    pub callee_name: String,
+    /// Number of arguments passed to the callee.
+    pub arg_count: usize,
+    /// Registers that hold live-across values at this call site and may need caller-saving.
+    /// Already filtered to exclude temps that are pressure-spilled (on the stack) at this
+    /// point.
+    pub live_across_registers: Vec<Register>,
+}
+
 /// Context for emitting IC10 instructions from one function's SSA IR.
 struct Emitter<'a> {
     function: &'a Function,
@@ -17,11 +35,14 @@ struct Emitter<'a> {
     assignments: &'a HashMap<TempId, Register>,
     calling_convention: &'a CallingConventionInfo,
     symbols: &'a SymbolTable,
+    spills: &'a [SpillRecord],
     output: Vec<IC10Instruction>,
     /// Spills indexed by the position at which the push should be emitted.
     spills_at: HashMap<LinearPosition, Vec<&'a SpillRecord>>,
     /// Reloads indexed by the position at which the pop should be emitted.
     reloads_at: HashMap<LinearPosition, Vec<&'a SpillRecord>>,
+    /// Call site metadata collected during emission, consumed by the caller-save post-pass.
+    call_sites: Vec<EmittedCallSite>,
 }
 
 impl<'a> Emitter<'a> {
@@ -52,9 +73,11 @@ impl<'a> Emitter<'a> {
             assignments: &result.assignments,
             calling_convention,
             symbols,
+            spills: &result.spills,
             output: Vec::new(),
             spills_at,
             reloads_at,
+            call_sites: Vec::new(),
         }
     }
 
@@ -102,7 +125,20 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_function(mut self) -> IC10Function {
+    /// Returns `true` if `temp` has been pressure-spilled to the stack and not yet reloaded
+    /// at the given linear `position`.  Such temps do not need caller-save push/pop because
+    /// their values are already safe on the stack.
+    fn is_on_stack_at(&self, temp: TempId, position: LinearPosition) -> bool {
+        self.spills.iter().any(|record| {
+            record.temp == temp
+                && record.spill_position <= position
+                && record
+                    .reload_position
+                    .is_none_or(|reload| reload > position)
+        })
+    }
+
+    fn emit_function(mut self) -> (IC10Function, Vec<EmittedCallSite>) {
         let is_entry = self.function.name == "main";
         let is_non_leaf = self.calling_convention.function_class == FunctionClass::NonLeaf;
 
@@ -111,7 +147,7 @@ impl<'a> Emitter<'a> {
         for (block_index, &block_id) in block_order.iter().enumerate() {
             self.emit(IC10Instruction::Label(self.block_label(block_id)));
 
-            if block_index == 0 && is_non_leaf {
+            if block_index == 0 && is_non_leaf && !is_entry {
                 self.emit(IC10Instruction::Push(Operand::Register(Register::Ra)));
             }
 
@@ -132,7 +168,7 @@ impl<'a> Emitter<'a> {
                 );
 
                 if !should_suppress {
-                    self.lower_instruction(instruction);
+                    self.lower_instruction(instruction, position);
                 }
             }
 
@@ -145,11 +181,15 @@ impl<'a> Emitter<'a> {
             self.lower_terminator(block_id, &terminator, next_block, is_entry, is_non_leaf);
         }
 
-        IC10Function {
-            name: self.function.name.clone(),
-            instructions: self.output,
-            is_entry,
-        }
+        let call_sites = self.call_sites;
+        (
+            IC10Function {
+                name: self.function.name.clone(),
+                instructions: self.output,
+                is_entry,
+            },
+            call_sites,
+        )
     }
 
     fn should_suppress_for_branch_fusion(
@@ -185,7 +225,7 @@ impl<'a> Emitter<'a> {
         false
     }
 
-    fn lower_instruction(&mut self, instruction: &Instruction) {
+    fn lower_instruction(&mut self, instruction: &Instruction, position: LinearPosition) {
         match instruction {
             Instruction::Assign { dest, operation } => {
                 self.lower_assign(*dest, operation);
@@ -258,7 +298,7 @@ impl<'a> Emitter<'a> {
                 function,
                 args,
             } => {
-                self.lower_call(*dest, *function, args);
+                self.lower_call(*dest, *function, args, position);
             }
             Instruction::BuiltinCall {
                 dest,
@@ -477,8 +517,24 @@ impl<'a> Emitter<'a> {
         dest: Option<TempId>,
         function_symbol: crate::resolved::SymbolId,
         args: &[TempId],
+        position: LinearPosition,
     ) {
         let function_name = self.symbols.get(function_symbol).name.clone();
+
+        let live_across_registers: Vec<Register> = self
+            .calling_convention
+            .live_across_calls
+            .get(&position)
+            .map(|temps| {
+                temps
+                    .iter()
+                    .filter(|&&temp| !self.is_on_stack_at(temp, position))
+                    .filter_map(|&temp| self.assignments.get(&temp).copied())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let sequence_start = self.output.len();
 
         for (index, &arg) in args.iter().enumerate() {
             let target_register = register_for_index(index);
@@ -492,7 +548,7 @@ impl<'a> Emitter<'a> {
         }
 
         self.emit(IC10Instruction::JumpAndLink(JumpTarget::Label(
-            function_name,
+            function_name.clone(),
         )));
 
         if let Some(dest_temp) = dest {
@@ -504,6 +560,16 @@ impl<'a> Emitter<'a> {
                 ));
             }
         }
+
+        let sequence_end = self.output.len();
+
+        self.call_sites.push(EmittedCallSite {
+            sequence_start,
+            sequence_end,
+            callee_name: function_name,
+            arg_count: args.len(),
+            live_across_registers,
+        });
     }
 
     fn lower_terminator(
@@ -739,9 +805,7 @@ fn rewrite_jump_targets(
     labels: &HashMap<String, u32>,
 ) -> IC10Instruction {
     match instruction {
-        IC10Instruction::Jump(target) => {
-            IC10Instruction::Jump(resolve_target(target, labels))
-        }
+        IC10Instruction::Jump(target) => IC10Instruction::Jump(resolve_target(target, labels)),
         IC10Instruction::JumpAndLink(target) => {
             IC10Instruction::JumpAndLink(resolve_target(target, labels))
         }
@@ -798,6 +862,9 @@ fn rewrite_jump_targets(
 }
 
 /// Emit IC10 instructions for a single function.
+///
+/// Returns the emitted function and metadata about each call site, which the caller-save
+/// post-pass uses to insert push/pop instructions.
 pub fn emit_function(
     function: &Function,
     block_order: &[BlockId],
@@ -805,7 +872,7 @@ pub fn emit_function(
     result: &AllocationResult,
     calling_convention: &CallingConventionInfo,
     symbols: &SymbolTable,
-) -> IC10Function {
+) -> (IC10Function, Vec<EmittedCallSite>) {
     let emitter = Emitter::new(
         function,
         block_order,
@@ -815,4 +882,129 @@ pub fn emit_function(
         symbols,
     );
     emitter.emit_function()
+}
+
+/// Compute which general-purpose registers (R0–R15) each function may write, transitively
+/// including the effects of any functions it calls.
+///
+/// Since IC20 programs contain no indirect calls, the full call graph is statically known.
+/// Recursion (cycles in the call graph) is handled by fixpoint iteration: each function's
+/// clobber set starts with the registers it writes directly, then callee clobber sets are
+/// unioned in repeatedly until convergence.
+pub fn compute_clobber_sets(functions: &[IC10Function]) -> HashMap<String, HashSet<Register>> {
+    let mut clobber: HashMap<String, HashSet<Register>> = HashMap::new();
+    let mut callees: HashMap<String, Vec<String>> = HashMap::new();
+
+    for function in functions {
+        let mut direct_writes: HashSet<Register> = HashSet::new();
+        let mut targets: Vec<String> = Vec::new();
+
+        for instruction in &function.instructions {
+            if let Some(register) = instruction.written_register()
+                && register.is_general_purpose()
+            {
+                direct_writes.insert(register);
+            }
+            if let IC10Instruction::JumpAndLink(JumpTarget::Label(name)) = instruction {
+                targets.push(name.clone());
+            }
+        }
+
+        clobber.insert(function.name.clone(), direct_writes);
+        callees.insert(function.name.clone(), targets);
+    }
+
+    loop {
+        let mut changed = false;
+        for function in functions {
+            if let Some(targets) = callees.get(&function.name) {
+                let callee_registers: HashSet<Register> = targets
+                    .iter()
+                    .flat_map(|target| clobber.get(target).cloned().unwrap_or_default())
+                    .collect();
+
+                let function_set = clobber.get_mut(&function.name).unwrap();
+                let old_size = function_set.len();
+                function_set.extend(callee_registers);
+                if function_set.len() > old_size {
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    clobber
+}
+
+/// Insert caller-save push/pop instructions around call sites in a function.
+///
+/// For each call site, determines which live-across registers are actually clobbered by the
+/// callee (or overwritten by argument-setup moves) and emits `push`/`pop` pairs around the
+/// call sequence.  Registers that the callee does not clobber are left alone, saving IC10
+/// lines.
+///
+/// Push instructions are inserted before the argument-setup moves; pop instructions (in
+/// reverse order, respecting LIFO stack discipline) are inserted after the return-value move.
+pub fn insert_caller_saves(
+    function: &mut IC10Function,
+    call_sites: &[EmittedCallSite],
+    clobber_sets: &HashMap<String, HashSet<Register>>,
+) {
+    if call_sites.is_empty() {
+        return;
+    }
+
+    let empty_set: HashSet<Register> = HashSet::new();
+    let mut offset: usize = 0;
+
+    for site in call_sites {
+        let callee_clobber = clobber_sets.get(&site.callee_name).unwrap_or(&empty_set);
+
+        let mut arg_registers: HashSet<Register> = HashSet::new();
+        for index in 0..site.arg_count {
+            arg_registers.insert(register_for_index(index));
+        }
+
+        let combined_clobber: HashSet<&Register> = callee_clobber.union(&arg_registers).collect();
+
+        let registers_to_save: Vec<Register> = site
+            .live_across_registers
+            .iter()
+            .filter(|register| combined_clobber.contains(register))
+            .copied()
+            .collect();
+
+        if registers_to_save.is_empty() {
+            continue;
+        }
+
+        let push_index = site.sequence_start + offset;
+        let pop_index = site.sequence_end + offset + registers_to_save.len();
+
+        let pushes: Vec<IC10Instruction> = registers_to_save
+            .iter()
+            .map(|&register| IC10Instruction::Push(Operand::Register(register)))
+            .collect();
+
+        let pops: Vec<IC10Instruction> = registers_to_save
+            .iter()
+            .rev()
+            .map(|&register| IC10Instruction::Pop(register))
+            .collect();
+
+        let push_count = pushes.len();
+        let pop_count = pops.len();
+
+        for (i, push) in pushes.into_iter().enumerate() {
+            function.instructions.insert(push_index + i, push);
+        }
+        for (i, pop) in pops.into_iter().enumerate() {
+            function.instructions.insert(pop_index + i, pop);
+        }
+
+        offset += push_count + pop_count;
+    }
 }

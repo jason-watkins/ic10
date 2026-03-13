@@ -13,7 +13,9 @@ pub use calling_convention::{
     CallingConventionInfo, FunctionClass, analyze_calling_convention, classify_function,
     find_call_sites, find_live_across_calls,
 };
-pub use emitter::{emit_function, resolve_labels};
+pub use emitter::{
+    EmittedCallSite, compute_clobber_sets, emit_function, insert_caller_saves, resolve_labels,
+};
 pub use ic10::{IC10Function, IC10Instruction, IC10Program, JumpTarget, Operand, Register};
 pub use liveness::{
     LinearMap, LinearPosition, LinearRange, LiveInterval, LiveRange, compute_live_ranges,
@@ -29,6 +31,7 @@ pub fn allocate_registers(program: &mut Program) -> Result<IC10Program, Vec<Diag
     }
 
     let mut ic10_functions = Vec::new();
+    let mut all_call_sites: Vec<Vec<EmittedCallSite>> = Vec::new();
 
     for function in &program.functions {
         let block_order = compute_reverse_postorder(function);
@@ -38,7 +41,7 @@ pub fn allocate_registers(program: &mut Program) -> Result<IC10Program, Vec<Diag
 
         match allocate_function(function, &linear_map, &live_ranges, &calling_convention) {
             Ok(result) => {
-                let ic10_function = emit_function(
+                let (ic10_function, call_sites) = emit_function(
                     function,
                     &block_order,
                     &linear_map,
@@ -47,13 +50,23 @@ pub fn allocate_registers(program: &mut Program) -> Result<IC10Program, Vec<Diag
                     &program.symbols,
                 );
                 ic10_functions.push(ic10_function);
+                all_call_sites.push(call_sites);
             }
-            Err(diags) => diagnostics.extend(diags),
+            Err(diags) => {
+                diagnostics.extend(diags);
+                all_call_sites.push(Vec::new());
+            }
         }
     }
 
     if !diagnostics.is_empty() {
         return Err(diagnostics);
+    }
+
+    // Caller-save: compute clobber sets and insert push/pop around call sites.
+    let clobber_sets = compute_clobber_sets(&ic10_functions);
+    for (function, call_sites) in ic10_functions.iter_mut().zip(all_call_sites.iter()) {
+        insert_caller_saves(function, call_sites, &clobber_sets);
     }
 
     // Order functions: main first, then others in declaration order.
@@ -94,6 +107,10 @@ pub fn allocate_registers(program: &mut Program) -> Result<IC10Program, Vec<Diag
             is_entry: function.is_entry,
         });
         offset += original_count;
+    }
+
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
     }
 
     Ok(IC10Program {
@@ -1346,5 +1363,384 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn compile_to_ic10(source: &str) -> IC10Program {
+        let mut program = build_ssa(source);
+        allocate_registers(&mut program)
+            .unwrap_or_else(|diagnostics| panic!("register allocation failed: {:#?}", diagnostics))
+    }
+
+    fn compile_to_ic10_with_diagnostics(
+        source: &str,
+    ) -> Result<IC10Program, Vec<crate::diagnostic::Diagnostic>> {
+        let mut program = build_ssa(source);
+        allocate_registers(&mut program)
+    }
+
+    fn all_instructions(program: &IC10Program) -> Vec<&IC10Instruction> {
+        program
+            .functions
+            .iter()
+            .flat_map(|f| &f.instructions)
+            .collect()
+    }
+
+    #[test]
+    fn end_to_end_empty_main() {
+        let program = compile_to_ic10("fn main() {}");
+        assert_eq!(program.functions.len(), 1);
+        assert!(program.functions[0].is_entry);
+        assert!(
+            !program.functions[0].instructions.is_empty(),
+            "even an empty main should emit at least hcf"
+        );
+    }
+
+    #[test]
+    fn end_to_end_single_constant() {
+        let program = compile_to_ic10("fn main() { let _x: i53 = 42; }");
+        let instructions = all_instructions(&program);
+        let has_move_42 = instructions.iter().any(|instruction| {
+            matches!(instruction, IC10Instruction::Move(_, Operand::Literal(v)) if (*v - 42.0).abs() < f64::EPSILON)
+        });
+        assert!(has_move_42, "should emit a move with literal 42");
+    }
+
+    #[test]
+    fn end_to_end_arithmetic_expression() {
+        let program =
+            compile_to_ic10("fn main() { let a: i53 = 3; let b: i53 = 7; let _c: i53 = a + b; }");
+        let instructions = all_instructions(&program);
+        let has_add = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Add(..)));
+        assert!(has_add, "should emit an Add instruction for a + b");
+    }
+
+    #[test]
+    fn end_to_end_device_read_write() {
+        let program = compile_to_ic10(
+            r#"
+            device sensor: d0;
+            device actuator: d1;
+            fn main() {
+                let temp: f64 = sensor.Temperature;
+                actuator.Setting = temp;
+            }
+            "#,
+        );
+        let instructions = all_instructions(&program);
+        let has_load = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Load(..)));
+        let has_store = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Store(..)));
+        assert!(has_load, "should emit a Load instruction for device read");
+        assert!(
+            has_store,
+            "should emit a Store instruction for device write"
+        );
+    }
+
+    #[test]
+    fn end_to_end_function_call_args_and_return() {
+        let program = compile_to_ic10(
+            r#"
+            fn add(a: i53, b: i53) -> i53 { let result: i53 = a + b; return result; }
+            fn main() { let _x: i53 = add(10, 20); }
+            "#,
+        );
+        assert!(
+            program.functions.len() >= 2,
+            "should have at least main and add"
+        );
+        assert!(
+            program.functions[0].is_entry,
+            "main should be first function"
+        );
+
+        let main_instructions = &program.functions[0].instructions;
+        let has_jal = main_instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::JumpAndLink(..)));
+        assert!(has_jal, "main should emit a jal to call add");
+    }
+
+    #[test]
+    fn end_to_end_non_leaf_push_pop_ra() {
+        let program = compile_to_ic10(
+            r#"
+            fn leaf() -> i53 { return 1; }
+            fn middle() -> i53 { let x: i53 = leaf(); return x; }
+            fn main() { let _x: i53 = middle(); }
+            "#,
+        );
+        let middle = program
+            .functions
+            .iter()
+            .find(|f| f.name == "middle")
+            .expect("should have middle function");
+        let has_push_ra = middle.instructions.iter().any(|instruction| {
+            matches!(
+                instruction,
+                IC10Instruction::Push(Operand::Register(Register::Ra))
+            )
+        });
+        let has_pop_ra = middle
+            .instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Pop(Register::Ra)));
+        assert!(
+            has_push_ra,
+            "non-leaf non-main function should emit push ra at entry"
+        );
+        assert!(
+            has_pop_ra,
+            "non-leaf non-main function should emit pop ra before return"
+        );
+        let main_fn = program.functions.iter().find(|f| f.is_entry).unwrap();
+        let main_has_push_ra = main_fn.instructions.iter().any(|instruction| {
+            matches!(
+                instruction,
+                IC10Instruction::Push(Operand::Register(Register::Ra))
+            )
+        });
+        assert!(
+            !main_has_push_ra,
+            "main must never push ra — ra is undefined at program start"
+        );
+    }
+
+    #[test]
+    fn end_to_end_caller_save_spill() {
+        let program = compile_to_ic10(
+            r#"
+            fn helper() -> i53 {
+                let a: i53 = 1; let b: i53 = 2; let c: i53 = 3;
+                let d: i53 = 4; let e: i53 = 5; let f: i53 = 6;
+                let g: i53 = 7; let h: i53 = 8;
+                let result: i53 = a + b + c + d + e + f + g + h;
+                return result;
+            }
+            fn caller() -> i53 {
+                let x: i53 = 10;
+                let _result: i53 = helper();
+                let value: i53 = x + 1;
+                return value;
+            }
+            fn main() { let _x: i53 = caller(); }
+            "#,
+        );
+        let caller_fn = program
+            .functions
+            .iter()
+            .find(|f| f.name == "caller")
+            .expect("should have caller function");
+        let push_count = caller_fn
+            .instructions
+            .iter()
+            .filter(|instruction| matches!(instruction, IC10Instruction::Push(..)))
+            .count();
+        let pop_count = caller_fn
+            .instructions
+            .iter()
+            .filter(|instruction| matches!(instruction, IC10Instruction::Pop(..)))
+            .count();
+        assert!(
+            push_count >= 2,
+            "should push ra and the live-across value x (got {} pushes)",
+            push_count
+        );
+        assert!(
+            pop_count >= 2,
+            "should pop the live-across value x and ra (got {} pops)",
+            pop_count
+        );
+        assert_eq!(
+            push_count, pop_count,
+            "pushes and pops should be balanced in a non-main function"
+        );
+    }
+
+    #[test]
+    fn end_to_end_register_pressure_spill() {
+        let source = r#"
+            fn main() {
+                let a: i53 = 1;
+                let b: i53 = 2;
+                let c: i53 = 3;
+                let d: i53 = 4;
+                let e: i53 = 5;
+                let f: i53 = 6;
+                let g: i53 = 7;
+                let h: i53 = 8;
+                let i: i53 = 9;
+                let j: i53 = 10;
+                let k: i53 = 11;
+                let l: i53 = 12;
+                let m: i53 = 13;
+                let n: i53 = 14;
+                let o: i53 = 15;
+                let p: i53 = 16;
+                let q: i53 = 17;
+                let _result: i53 = a + b + c + d + e + f + g + h + i + j + k + l + m + n + o + p + q;
+            }
+        "#;
+        let program = compile_to_ic10(source);
+        let instructions = all_instructions(&program);
+        let has_push = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Push(Operand::Register(..))));
+        let has_pop = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Pop(..)));
+        assert!(
+            has_push && has_pop,
+            "17 simultaneous live values should require spilling"
+        );
+    }
+
+    #[test]
+    fn end_to_end_branch_fusion() {
+        let program = compile_to_ic10(
+            r#"
+            fn main() {
+                let x: i53 = 5;
+                if x > 3 {
+                    yield;
+                }
+            }
+            "#,
+        );
+        let instructions = all_instructions(&program);
+        let has_fused_branch = instructions.iter().any(|instruction| {
+            matches!(
+                instruction,
+                IC10Instruction::BranchGreaterThan(..)
+                    | IC10Instruction::BranchLessEqual(..)
+                    | IC10Instruction::BranchGreaterEqual(..)
+                    | IC10Instruction::BranchLessThan(..)
+            )
+        });
+        let has_set_then_branch = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Sgt(..)));
+        assert!(
+            has_fused_branch,
+            "comparison + branch should be fused into a single conditional branch"
+        );
+        assert!(
+            !has_set_then_branch,
+            "fused branch should suppress the separate sgt instruction"
+        );
+    }
+
+    #[test]
+    fn end_to_end_copy_coalescing() {
+        let program = compile_to_ic10(
+            r#"
+            fn identity(x: i53) -> i53 { return x; }
+            fn main() {}
+            "#,
+        );
+        let identity = program
+            .functions
+            .iter()
+            .find(|f| f.name == "identity")
+            .expect("should have identity function");
+        for instruction in &identity.instructions {
+            if let IC10Instruction::Move(dest, Operand::Register(source)) = instruction {
+                assert_ne!(
+                    dest, source,
+                    "redundant move from {:?} to itself should be coalesced",
+                    dest,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn end_to_end_phi_lowered_to_moves() {
+        let program = compile_to_ic10(
+            r#"
+            fn main() {
+                let mut x: i53 = 1;
+                if true {
+                    x = 2;
+                } else {
+                    x = 3;
+                }
+                let _y: i53 = x;
+            }
+            "#,
+        );
+        let instructions = all_instructions(&program);
+        assert!(
+            !instructions.is_empty(),
+            "should produce instructions for if-else with phi"
+        );
+        let has_no_phi_labels = !instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Label(..)));
+        assert!(
+            has_no_phi_labels,
+            "labels should be resolved away in final output"
+        );
+    }
+
+    #[test]
+    fn end_to_end_loop_with_device_io() {
+        let program = compile_to_ic10(
+            r#"
+            device sensor: d0;
+            device actuator: d1;
+            fn main() {
+                loop {
+                    let temp: f64 = sensor.Temperature;
+                    actuator.Setting = temp;
+                    yield;
+                }
+            }
+            "#,
+        );
+        let instructions = all_instructions(&program);
+        let has_load = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Load(..)));
+        let has_store = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Store(..)));
+        let has_yield = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Yield));
+        let has_jump = instructions
+            .iter()
+            .any(|instruction| matches!(instruction, IC10Instruction::Jump(JumpTarget::Line(..))));
+        assert!(has_load, "should emit Load for device read");
+        assert!(has_store, "should emit Store for device write");
+        assert!(has_yield, "should emit Yield");
+        assert!(
+            has_jump,
+            "loop should produce a back-edge jump to a resolved line number"
+        );
+    }
+
+    #[test]
+    fn end_to_end_exceeds_128_lines_produces_warning() {
+        let yields = "yield; ".repeat(130);
+        let source = format!("fn main() {{ {} }}", yields);
+        let result = compile_to_ic10_with_diagnostics(&source);
+        let diagnostics =
+            result.expect_err("program with 130+ yields should exceed 128 lines and return Err");
+        let has_warning = diagnostics.iter().any(|d| {
+            d.severity == crate::diagnostic::Severity::Warning && d.message.contains("128")
+        });
+        assert!(
+            has_warning,
+            "should produce a warning about exceeding 128-line limit, got: {:#?}",
+            diagnostics,
+        );
     }
 }

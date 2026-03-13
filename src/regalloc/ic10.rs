@@ -25,6 +25,13 @@ pub enum Register {
     Sp,
 }
 
+impl Register {
+    /// Returns `true` for general-purpose registers `R0`–`R15`.
+    pub fn is_general_purpose(&self) -> bool {
+        !matches!(self, Register::Ra | Register::Sp)
+    }
+}
+
 /// An instruction source operand — either a physical register or an inline literal constant.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operand {
@@ -288,7 +295,170 @@ pub enum IC10Instruction {
     Yield,
 }
 
+impl IC10Instruction {
+    /// Returns the general-purpose register (R0–R15) written by this instruction, if any.
+    ///
+    /// Used by clobber-set analysis to determine which registers a function may modify.
+    /// Returns `None` for instructions that do not write a GP register (branches, stores,
+    /// push, labels, control flow without link, etc.).  `JumpAndLink` and branch-and-link
+    /// variants write `Ra` but that is handled separately by the prologue/epilogue.
+    pub fn written_register(&self) -> Option<Register> {
+        match self {
+            IC10Instruction::Abs(dest, _)
+            | IC10Instruction::Add(dest, _, _)
+            | IC10Instruction::Sub(dest, _, _)
+            | IC10Instruction::Mul(dest, _, _)
+            | IC10Instruction::Div(dest, _, _)
+            | IC10Instruction::Mod(dest, _, _)
+            | IC10Instruction::Pow(dest, _, _)
+            | IC10Instruction::Exp(dest, _)
+            | IC10Instruction::Log(dest, _)
+            | IC10Instruction::Sqrt(dest, _)
+            | IC10Instruction::Max(dest, _, _)
+            | IC10Instruction::Min(dest, _, _)
+            | IC10Instruction::Ceil(dest, _)
+            | IC10Instruction::Floor(dest, _)
+            | IC10Instruction::Round(dest, _)
+            | IC10Instruction::Trunc(dest, _)
+            | IC10Instruction::Move(dest, _)
+            | IC10Instruction::Rand(dest)
+            | IC10Instruction::Lerp(dest, _, _, _)
+            | IC10Instruction::Sin(dest, _)
+            | IC10Instruction::Cos(dest, _)
+            | IC10Instruction::Tan(dest, _)
+            | IC10Instruction::Asin(dest, _)
+            | IC10Instruction::Acos(dest, _)
+            | IC10Instruction::Atan(dest, _)
+            | IC10Instruction::Atan2(dest, _, _)
+            | IC10Instruction::And(dest, _, _)
+            | IC10Instruction::Or(dest, _, _)
+            | IC10Instruction::Xor(dest, _, _)
+            | IC10Instruction::Nor(dest, _, _)
+            | IC10Instruction::Not(dest, _)
+            | IC10Instruction::Sll(dest, _, _)
+            | IC10Instruction::Sla(dest, _, _)
+            | IC10Instruction::Srl(dest, _, _)
+            | IC10Instruction::Sra(dest, _, _)
+            | IC10Instruction::Seq(dest, _, _)
+            | IC10Instruction::Seqz(dest, _)
+            | IC10Instruction::Sne(dest, _, _)
+            | IC10Instruction::Snez(dest, _)
+            | IC10Instruction::Sgt(dest, _, _)
+            | IC10Instruction::Sgtz(dest, _)
+            | IC10Instruction::Sge(dest, _, _)
+            | IC10Instruction::Sgez(dest, _)
+            | IC10Instruction::Slt(dest, _, _)
+            | IC10Instruction::Sltz(dest, _)
+            | IC10Instruction::Sle(dest, _, _)
+            | IC10Instruction::Slez(dest, _)
+            | IC10Instruction::Sap(dest, _, _, _)
+            | IC10Instruction::Sapz(dest, _, _)
+            | IC10Instruction::Sna(dest, _, _, _)
+            | IC10Instruction::Snaz(dest, _, _)
+            | IC10Instruction::Snan(dest, _)
+            | IC10Instruction::Snanz(dest, _)
+            | IC10Instruction::Sdse(dest, _)
+            | IC10Instruction::Sdns(dest, _)
+            | IC10Instruction::Select(dest, _, _, _)
+            | IC10Instruction::Pop(dest)
+            | IC10Instruction::Peek(dest)
+            | IC10Instruction::Get(dest, _, _)
+            | IC10Instruction::GetById(dest, _, _)
+            | IC10Instruction::Load(dest, _, _)
+            | IC10Instruction::LoadSlot(dest, _, _, _)
+            | IC10Instruction::LoadReagent(dest, _, _, _)
+            | IC10Instruction::ReagentMap(dest, _, _)
+            | IC10Instruction::LoadById(dest, _, _) => Some(*dest),
+
+            IC10Instruction::Ext { dest, .. }
+            | IC10Instruction::Ins { dest, .. }
+            | IC10Instruction::BatchLoad { dest, .. }
+            | IC10Instruction::BatchLoadSlot { dest, .. }
+            | IC10Instruction::BatchLoadSlotByName { dest, .. } => Some(*dest),
+
+            IC10Instruction::Label(_)
+            | IC10Instruction::Jump(_)
+            | IC10Instruction::JumpRelative(_)
+            | IC10Instruction::JumpAndLink(_)
+            | IC10Instruction::BranchEqual(..)
+            | IC10Instruction::BranchEqualZero(..)
+            | IC10Instruction::BranchNotEqual(..)
+            | IC10Instruction::BranchNotEqualZero(..)
+            | IC10Instruction::BranchGreaterThan(..)
+            | IC10Instruction::BranchGreaterThanZero(..)
+            | IC10Instruction::BranchGreaterEqual(..)
+            | IC10Instruction::BranchGreaterEqualZero(..)
+            | IC10Instruction::BranchLessThan(..)
+            | IC10Instruction::BranchLessThanZero(..)
+            | IC10Instruction::BranchLessEqual(..)
+            | IC10Instruction::BranchLessEqualZero(..)
+            | IC10Instruction::BranchApproximateEqual { .. }
+            | IC10Instruction::BranchApproximateZero { .. }
+            | IC10Instruction::BranchNotApproximateEqual { .. }
+            | IC10Instruction::BranchNotApproximateZero { .. }
+            | IC10Instruction::BranchNaN(..)
+            | IC10Instruction::BranchEqualAndLink(..)
+            | IC10Instruction::BranchEqualZeroAndLink(..)
+            | IC10Instruction::BranchNotEqualAndLink(..)
+            | IC10Instruction::BranchNotEqualZeroAndLink(..)
+            | IC10Instruction::BranchGreaterThanAndLink(..)
+            | IC10Instruction::BranchGreaterThanZeroAndLink(..)
+            | IC10Instruction::BranchGreaterEqualAndLink(..)
+            | IC10Instruction::BranchGreaterEqualZeroAndLink(..)
+            | IC10Instruction::BranchLessThanAndLink(..)
+            | IC10Instruction::BranchLessThanZeroAndLink(..)
+            | IC10Instruction::BranchLessEqualAndLink(..)
+            | IC10Instruction::BranchLessEqualZeroAndLink(..)
+            | IC10Instruction::BranchApproximateEqualAndLink(..)
+            | IC10Instruction::BranchApproximateZeroAndLink(..)
+            | IC10Instruction::BranchNotApproximateEqualAndLink(..)
+            | IC10Instruction::BranchNotApproximateZeroAndLink(..)
+            | IC10Instruction::BranchEqualRelative(..)
+            | IC10Instruction::BranchEqualZeroRelative(..)
+            | IC10Instruction::BranchNotEqualRelative(..)
+            | IC10Instruction::BranchNotEqualZeroRelative(..)
+            | IC10Instruction::BranchGreaterThanRelative(..)
+            | IC10Instruction::BranchGreaterThanZeroRelative(..)
+            | IC10Instruction::BranchGreaterEqualRelative(..)
+            | IC10Instruction::BranchGreaterEqualZeroRelative(..)
+            | IC10Instruction::BranchLessThanRelative(..)
+            | IC10Instruction::BranchLessThanZeroRelative(..)
+            | IC10Instruction::BranchLessEqualRelative(..)
+            | IC10Instruction::BranchLessEqualZeroRelative(..)
+            | IC10Instruction::BranchApproximateEqualRelative(..)
+            | IC10Instruction::BranchApproximateZeroRelative(..)
+            | IC10Instruction::BranchNotApproximateEqualRelative(..)
+            | IC10Instruction::BranchNotApproximateZeroRelative(..)
+            | IC10Instruction::BranchNaNRelative(..)
+            | IC10Instruction::BranchDeviceSet(..)
+            | IC10Instruction::BranchDeviceNotSet(..)
+            | IC10Instruction::BranchDeviceSetAndLink(..)
+            | IC10Instruction::BranchDeviceNotSetAndLink(..)
+            | IC10Instruction::BranchDeviceSetRelative(..)
+            | IC10Instruction::BranchDeviceNotSetRelative(..)
+            | IC10Instruction::BranchDeviceNotValidLoad(..)
+            | IC10Instruction::BranchDeviceNotValidStore(..)
+            | IC10Instruction::Push(_)
+            | IC10Instruction::Poke(..)
+            | IC10Instruction::ClearStack(_)
+            | IC10Instruction::ClearStackById(_)
+            | IC10Instruction::Put(..)
+            | IC10Instruction::PutById(..)
+            | IC10Instruction::Store(..)
+            | IC10Instruction::StoreSlot(..)
+            | IC10Instruction::StoreById { .. }
+            | IC10Instruction::BatchStore { .. }
+            | IC10Instruction::BatchStoreByName { .. }
+            | IC10Instruction::BatchStoreSlot { .. }
+            | IC10Instruction::HaltAndCatchFire
+            | IC10Instruction::Sleep(_)
+            | IC10Instruction::Yield => None,
+        }
+    }
+}
+
 /// A register-allocated function ready for code generation.
+#[derive(Debug)]
 pub struct IC10Function {
     pub name: String,
     pub instructions: Vec<IC10Instruction>,
@@ -297,6 +467,7 @@ pub struct IC10Function {
 }
 
 /// The output of the register allocator: a complete, register-assigned IC10 program.
+#[derive(Debug)]
 pub struct IC10Program {
     pub functions: Vec<IC10Function>,
 }

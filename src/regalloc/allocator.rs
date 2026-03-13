@@ -181,6 +181,7 @@ pub fn allocate_function(
 ) -> Result<AllocationResult, Vec<Diagnostic>> {
     let use_positions = compute_use_positions(function, linear_map);
 
+    // Process ranges in start-position order; break ties by temp id for determinism.
     let mut sorted_ranges: Vec<(TempId, &LiveRange)> = live_ranges
         .iter()
         .map(|(&temp, range)| (temp, range))
@@ -195,11 +196,13 @@ pub fn allocate_function(
     for &(temp, range) in &sorted_ranges {
         let position = range.start();
 
+        // Release registers from temps whose live ranges ended before this point.
         expire_old_ranges(&mut active, &mut pool, position);
 
         let preferred = calling_convention.fixed.get(&temp).copied();
 
         if let Some(preferred_register) = preferred {
+            // Fast path: the calling-convention register is free, grab it directly.
             if pool.is_free(preferred_register) {
                 pool.allocate(preferred_register);
                 assignments.insert(temp, preferred_register);
@@ -214,12 +217,15 @@ pub fn allocate_function(
                 continue;
             }
 
+            // The preferred register is held by another temp. Evict it to an
+            // alternative register if one is available, otherwise spill it to the stack.
             if let Some(occupant_index) =
                 active.iter().position(|e| e.register == preferred_register)
             {
                 let occupant = active.remove(occupant_index);
 
                 if let Some(alternative) = pool.allocate_any() {
+                    // Relocate the occupant so this temp can claim its preferred register.
                     assignments.insert(occupant.temp, alternative);
                     insert_active_sorted(
                         &mut active,
@@ -241,26 +247,24 @@ pub fn allocate_function(
                     continue;
                 }
 
-                let reload = next_use_after(occupant.temp, position, &use_positions);
-                spills.push(SpillRecord {
-                    temp: occupant.temp,
-                    register: occupant.register,
-                    spill_position: position,
-                    reload_position: reload,
-                });
-                assignments.insert(temp, preferred_register);
+                // No free alternative register. Forcibly spilling the occupant here could
+                // violate stack LIFO order: the occupant's next use may be earlier than
+                // something already deeper on the spill stack, making it impossible to pop
+                // in the correct order at reload time. Restore the occupant and fall through
+                // to spill_farthest, which always picks the farthest-use victim and
+                // therefore guarantees properly nested (non-crossing) spill intervals.
                 insert_active_sorted(
                     &mut active,
                     ActiveEntry {
-                        temp,
-                        register: preferred_register,
-                        range_end: range.end(),
+                        temp: occupant.temp,
+                        register: occupant.register,
+                        range_end: occupant.range_end,
                     },
                 );
-                continue;
             }
         }
 
+        // No calling-convention constraint — take any free register.
         if let Some(register) = pool.allocate_any() {
             assignments.insert(temp, register);
             insert_active_sorted(
@@ -274,6 +278,7 @@ pub fn allocate_function(
             continue;
         }
 
+        // All registers are live. Spill whichever temp is used farthest in the future.
         spill_farthest(
             temp,
             range,
@@ -286,6 +291,7 @@ pub fn allocate_function(
         )?;
     }
 
+    // Spills whose temp is never used again need no reload; drop them entirely.
     spills.retain(|record| record.reload_position.is_some());
 
     let max_stack_depth = compute_max_stack_depth(&spills);

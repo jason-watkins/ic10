@@ -25,17 +25,18 @@ pub enum FunctionClass {
 pub struct CallingConventionInfo {
     /// Whether the function is a leaf or non-leaf.
     pub function_class: FunctionClass,
-    /// Fixed register pre-assignments derived from the IC20 calling convention:
+    /// Register pre-assignments derived from the IC20 calling convention.
     ///
     /// - Function parameters → `r0`, `r1`, ... (one per parameter, in declaration order).
     /// - The function's own return value → `r0`.
     /// - Each `Instruction::Call` argument → `r0`, `r1`, ... (at the call site).
     /// - Each `Instruction::Call` destination → `r0` (at the call site).
     ///
-    /// The linear-scan allocator must honor every entry: the named temp must be placed in
-    /// the named register for its entire live range.  When two entries for the same temp
-    /// agree on the register the duplicate is harmless; when they disagree, the allocator
-    /// must insert a `Move` to resolve the conflict.
+    /// **Parameter entries are mandatory**: the caller deposits values in specific registers
+    /// before `jal`; the callee emits no entry moves.  All other entries are preferences:
+    /// the emitter already contains `if source != target { emit Move }` guards for return
+    /// values, call arguments, and call destinations, so a mismatch only costs an extra
+    /// `move` instruction rather than producing incorrect code.
     pub fixed: HashMap<TempId, Register>,
     /// For each call site (keyed by its `LinearPosition`), the temps whose live ranges
     /// straddle the call — i.e., defined strictly before the call and last-used strictly
