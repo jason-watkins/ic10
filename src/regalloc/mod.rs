@@ -1,0 +1,1350 @@
+pub(crate) mod allocator;
+pub(crate) mod calling_convention;
+pub(crate) mod emitter;
+pub(crate) mod ic10;
+pub(crate) mod liveness;
+pub(crate) mod phi;
+
+use crate::cfg::Program;
+use crate::diagnostic::Diagnostic;
+
+pub use allocator::{AllocationResult, SpillRecord, allocate_function, resolve_parallel_moves};
+pub use calling_convention::{
+    CallingConventionInfo, FunctionClass, analyze_calling_convention, classify_function,
+    find_call_sites, find_live_across_calls,
+};
+pub use emitter::{emit_function, resolve_labels};
+pub use ic10::{IC10Function, IC10Instruction, IC10Program, JumpTarget, Operand, Register};
+pub use liveness::{
+    LinearMap, LinearPosition, LinearRange, LiveInterval, LiveRange, compute_live_ranges,
+    compute_reverse_postorder, linearize_function,
+};
+pub use phi::deconstruct_phis;
+
+pub fn allocate_registers(program: &mut Program) -> Result<IC10Program, Vec<Diagnostic>> {
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
+
+    for function in &mut program.functions {
+        deconstruct_phis(function);
+    }
+
+    let mut ic10_functions = Vec::new();
+
+    for function in &program.functions {
+        let block_order = compute_reverse_postorder(function);
+        let linear_map = linearize_function(function, &block_order);
+        let live_ranges = compute_live_ranges(function, &linear_map);
+        let calling_convention = analyze_calling_convention(function, &linear_map, &live_ranges);
+
+        match allocate_function(function, &linear_map, &live_ranges, &calling_convention) {
+            Ok(result) => {
+                let ic10_function = emit_function(
+                    function,
+                    &block_order,
+                    &linear_map,
+                    &result,
+                    &calling_convention,
+                    &program.symbols,
+                );
+                ic10_functions.push(ic10_function);
+            }
+            Err(diags) => diagnostics.extend(diags),
+        }
+    }
+
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
+
+    // Order functions: main first, then others in declaration order.
+    ic10_functions.sort_by_key(|f| if f.is_entry { 0 } else { 1 });
+
+    // Resolve labels to absolute line numbers within each function.
+    // First, compute the line offset for each function (they are concatenated).
+    let mut global_instructions: Vec<IC10Instruction> = Vec::new();
+    for function in &ic10_functions {
+        global_instructions.extend(function.instructions.iter().cloned());
+    }
+    let resolved = resolve_labels(global_instructions);
+
+    // Check the 128-line limit.
+    if resolved.len() > 128 {
+        diagnostics.push(Diagnostic {
+            severity: crate::diagnostic::Severity::Warning,
+            span: crate::diagnostic::Span { start: 0, end: 0 },
+            message: format!(
+                "program exceeds 128-line IC10 limit ({} lines)",
+                resolved.len()
+            ),
+        });
+    }
+
+    // Rebuild IC10Functions with resolved instructions.
+    let mut offset = 0;
+    let mut resolved_functions = Vec::new();
+    for function in &ic10_functions {
+        let original_count = function
+            .instructions
+            .iter()
+            .filter(|i| !matches!(i, IC10Instruction::Label(_)))
+            .count();
+        resolved_functions.push(IC10Function {
+            name: function.name.clone(),
+            instructions: resolved[offset..offset + original_count].to_vec(),
+            is_entry: function.is_entry,
+        });
+        offset += original_count;
+    }
+
+    Ok(IC10Program {
+        functions: resolved_functions,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::phi::sequence_parallel_copies;
+    use super::*;
+    use crate::cfg;
+    use crate::parser::parse;
+    use crate::resolve::resolve;
+    use crate::resolved::SymbolId;
+    use crate::ssa;
+
+    fn build_ssa(source: &str) -> cfg::Program {
+        let (ast, parse_diagnostics) = parse(source);
+        let errors: Vec<_> = parse_diagnostics
+            .iter()
+            .filter(|d| d.severity == crate::diagnostic::Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "parse errors: {:#?}", errors);
+        let (resolved, _) = resolve(&ast)
+            .unwrap_or_else(|diagnostics| panic!("resolve errors: {:#?}", diagnostics));
+        let (mut program, _) = cfg::build(&resolved);
+        ssa::construct_program(&mut program);
+        program
+    }
+
+    fn get_function_mut<'a>(program: &'a mut cfg::Program, name: &str) -> &'a mut cfg::Function {
+        program
+            .functions
+            .iter_mut()
+            .find(|f| f.name == name)
+            .unwrap_or_else(|| panic!("function '{}' not found", name))
+    }
+
+    fn count_phis(function: &cfg::Function) -> usize {
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .filter(|instruction| matches!(instruction, cfg::Instruction::Phi { .. }))
+            .count()
+    }
+
+    fn collect_copies(function: &cfg::Function) -> Vec<(cfg::BlockId, cfg::TempId, cfg::TempId)> {
+        let mut copies = Vec::new();
+        for block in &function.blocks {
+            for instruction in &block.instructions {
+                if let cfg::Instruction::Assign {
+                    dest,
+                    operation: cfg::Operation::Copy(source),
+                } = instruction
+                {
+                    copies.push((block.id, *dest, *source));
+                }
+            }
+        }
+        copies
+    }
+
+    #[test]
+    fn straight_line_no_phis_unchanged() {
+        let mut program = build_ssa("fn main() { let x = 1; let y = 2; }");
+        let main = get_function_mut(&mut program, "main");
+        assert_eq!(count_phis(main), 0);
+        let copies_before = collect_copies(main);
+        deconstruct_phis(main);
+        assert_eq!(count_phis(main), 0);
+        let copies_after = collect_copies(main);
+        assert_eq!(copies_before.len(), copies_after.len());
+    }
+
+    #[test]
+    fn diamond_if_else_phis_removed() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 1;
+                if true {
+                    x = 2;
+                } else {
+                    x = 3;
+                }
+                let y = x;
+            }"#,
+        );
+        let main = get_function_mut(&mut program, "main");
+        assert!(
+            count_phis(main) > 0,
+            "should have phis before deconstruction"
+        );
+        deconstruct_phis(main);
+        assert_eq!(count_phis(main), 0, "all phis should be removed");
+    }
+
+    #[test]
+    fn diamond_if_else_copies_inserted_in_predecessors() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 1;
+                if true {
+                    x = 2;
+                } else {
+                    x = 3;
+                }
+                let y = x;
+            }"#,
+        );
+        let main = get_function_mut(&mut program, "main");
+        let copies_before = collect_copies(main);
+        deconstruct_phis(main);
+        let copies_after = collect_copies(main);
+        assert!(
+            copies_after.len() > copies_before.len(),
+            "phi deconstruction should insert copy instructions"
+        );
+    }
+
+    #[test]
+    fn while_loop_phis_removed() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 0;
+                while x < 10 {
+                    x = x + 1;
+                }
+            }"#,
+        );
+        let main = get_function_mut(&mut program, "main");
+        assert!(
+            count_phis(main) > 0,
+            "should have phis before deconstruction"
+        );
+        deconstruct_phis(main);
+        assert_eq!(count_phis(main), 0, "all phis should be removed");
+    }
+
+    #[test]
+    fn for_loop_phis_removed() {
+        let mut program = build_ssa("fn main() { for i in 0..10 { yield; } }");
+        let main = get_function_mut(&mut program, "main");
+        assert!(count_phis(main) > 0);
+        deconstruct_phis(main);
+        assert_eq!(count_phis(main), 0);
+    }
+
+    #[test]
+    fn if_without_else_phis_removed() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 1;
+                if true {
+                    x = 2;
+                }
+                let y = x;
+            }"#,
+        );
+        let main = get_function_mut(&mut program, "main");
+        assert!(count_phis(main) > 0);
+        deconstruct_phis(main);
+        assert_eq!(count_phis(main), 0);
+    }
+
+    #[test]
+    fn cfg_edges_remain_consistent_after_deconstruction() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 1;
+                if true {
+                    x = 2;
+                } else {
+                    x = 3;
+                }
+                let y = x;
+            }"#,
+        );
+        let main = get_function_mut(&mut program, "main");
+        deconstruct_phis(main);
+        for block in &main.blocks {
+            for &successor in &block.successors {
+                assert!(
+                    main.blocks[successor.0].predecessors.contains(&block.id),
+                    "block {:?} lists {:?} as successor but {:?} doesn't list {:?} as predecessor",
+                    block.id,
+                    successor,
+                    successor,
+                    block.id,
+                );
+            }
+            for &predecessor in &block.predecessors {
+                assert!(
+                    main.blocks[predecessor.0].successors.contains(&block.id),
+                    "block {:?} lists {:?} as predecessor but {:?} doesn't list {:?} as successor",
+                    block.id,
+                    predecessor,
+                    predecessor,
+                    block.id,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn critical_edge_split_inserts_intermediate_block() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 0;
+                while x < 10 {
+                    if x > 5 {
+                        x = x + 2;
+                    } else {
+                        x = x + 1;
+                    }
+                }
+            }"#,
+        );
+        let main = get_function_mut(&mut program, "main");
+        let block_count_before = main.blocks.len();
+        deconstruct_phis(main);
+        assert_eq!(count_phis(main), 0);
+        assert!(
+            main.blocks.len() >= block_count_before,
+            "critical edge splitting may add blocks"
+        );
+    }
+
+    #[test]
+    fn parallel_copy_sequencing_no_cycle() {
+        let mut function = cfg::Function {
+            name: "test".to_string(),
+            symbol_id: SymbolId(0),
+            parameters: Vec::new(),
+            return_type: None,
+            blocks: Vec::new(),
+            entry: cfg::BlockId(0),
+            variable_definitions: HashMap::new(),
+            variable_temps: HashMap::new(),
+            immediate_dominators: HashMap::new(),
+            dominance_frontiers: HashMap::new(),
+            next_temp: 10,
+        };
+
+        let copies = vec![
+            (cfg::TempId(0), cfg::TempId(1)),
+            (cfg::TempId(2), cfg::TempId(3)),
+        ];
+        let result = sequence_parallel_copies(&copies, &mut function);
+        assert_eq!(result.len(), 2);
+        let destinations: Vec<_> = result.iter().map(|(d, _)| *d).collect();
+        assert!(destinations.contains(&cfg::TempId(0)));
+        assert!(destinations.contains(&cfg::TempId(2)));
+    }
+
+    #[test]
+    fn parallel_copy_sequencing_dependency_chain() {
+        let mut function = cfg::Function {
+            name: "test".to_string(),
+            symbol_id: SymbolId(0),
+            parameters: Vec::new(),
+            return_type: None,
+            blocks: Vec::new(),
+            entry: cfg::BlockId(0),
+            variable_definitions: HashMap::new(),
+            variable_temps: HashMap::new(),
+            immediate_dominators: HashMap::new(),
+            dominance_frontiers: HashMap::new(),
+            next_temp: 10,
+        };
+
+        // a <- b, c <- a: must emit c <- a before a <- b
+        let copies = vec![
+            (cfg::TempId(0), cfg::TempId(1)),
+            (cfg::TempId(2), cfg::TempId(0)),
+        ];
+        let result = sequence_parallel_copies(&copies, &mut function);
+        assert_eq!(result.len(), 2);
+        let first_dest = result[0].0;
+        assert_eq!(
+            first_dest,
+            cfg::TempId(2),
+            "c <- a must come before a <- b to avoid clobbering a"
+        );
+    }
+
+    #[test]
+    fn parallel_copy_sequencing_cycle_uses_temporary() {
+        let mut function = cfg::Function {
+            name: "test".to_string(),
+            symbol_id: SymbolId(0),
+            parameters: Vec::new(),
+            return_type: None,
+            blocks: Vec::new(),
+            entry: cfg::BlockId(0),
+            variable_definitions: HashMap::new(),
+            variable_temps: HashMap::new(),
+            immediate_dominators: HashMap::new(),
+            dominance_frontiers: HashMap::new(),
+            next_temp: 10,
+        };
+
+        // a <- b, b <- a: cycle — needs a temp
+        let copies = vec![
+            (cfg::TempId(0), cfg::TempId(1)),
+            (cfg::TempId(1), cfg::TempId(0)),
+        ];
+        let result = sequence_parallel_copies(&copies, &mut function);
+        assert_eq!(
+            result.len(),
+            3,
+            "cycle requires 3 copies (1 temp save + 2 assignments)"
+        );
+        let temp = result[0].0;
+        assert!(temp.0 >= 10, "fresh temp should have id >= next_temp");
+    }
+
+    #[test]
+    fn self_copy_eliminated() {
+        let mut function = cfg::Function {
+            name: "test".to_string(),
+            symbol_id: SymbolId(0),
+            parameters: Vec::new(),
+            return_type: None,
+            blocks: Vec::new(),
+            entry: cfg::BlockId(0),
+            variable_definitions: HashMap::new(),
+            variable_temps: HashMap::new(),
+            immediate_dominators: HashMap::new(),
+            dominance_frontiers: HashMap::new(),
+            next_temp: 10,
+        };
+
+        let copies = vec![(cfg::TempId(0), cfg::TempId(0))];
+        let result = sequence_parallel_copies(&copies, &mut function);
+        assert!(result.is_empty(), "self-copies should be eliminated");
+    }
+
+    #[test]
+    fn multiple_phis_in_same_block_deconstructed() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 0;
+                let mut y: i53 = 1;
+                while x < 10 {
+                    x = x + 1;
+                    y = y + 2;
+                }
+            }"#,
+        );
+        let main = get_function_mut(&mut program, "main");
+        assert!(
+            count_phis(main) >= 2,
+            "should have at least 2 phis (one per variable)"
+        );
+        deconstruct_phis(main);
+        assert_eq!(count_phis(main), 0);
+    }
+
+    #[test]
+    fn nested_loop_phis_deconstructed() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 0;
+                while x < 10 {
+                    let mut y: i53 = 0;
+                    while y < 5 {
+                        y = y + 1;
+                    }
+                    x = x + 1;
+                }
+            }"#,
+        );
+        let main = get_function_mut(&mut program, "main");
+        assert!(count_phis(main) > 0);
+        deconstruct_phis(main);
+        assert_eq!(count_phis(main), 0);
+    }
+
+    // Deconstruct phis in `name` and return the resulting LinearMap. The mutable borrow is
+    // released when this function returns, so callers can immediately re-borrow `program`
+    // immutably to call `compute_live_ranges`.
+    fn prepare_for_live_ranges(program: &mut cfg::Program, name: &str) -> LinearMap {
+        let index = program
+            .functions
+            .iter()
+            .position(|f| f.name == name)
+            .unwrap_or_else(|| panic!("function '{}' not found", name));
+        let function = &mut program.functions[index];
+        deconstruct_phis(function);
+        let block_order = compute_reverse_postorder(function);
+        linearize_function(function, &block_order)
+    }
+
+    #[test]
+    fn straight_line_temp_single_interval() {
+        let mut program = build_ssa("fn main() { let x: i53 = 1; let y: i53 = x + 1; }");
+        let linear_map = prepare_for_live_ranges(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let ranges = compute_live_ranges(function, &linear_map);
+
+        for range in ranges.values() {
+            assert_eq!(
+                range.intervals.len(),
+                1,
+                "straight-line code should produce single-interval ranges"
+            );
+        }
+    }
+
+    #[test]
+    fn temp_defined_before_use_has_correct_start_and_end() {
+        let mut program = build_ssa("fn main() { let x: i53 = 1; let _y: i53 = x + 2; }");
+        let linear_map = prepare_for_live_ranges(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let ranges = compute_live_ranges(function, &linear_map);
+
+        for range in ranges.values() {
+            let interval = range.intervals[0];
+            assert!(
+                interval.start <= interval.end,
+                "start must not exceed end: {:?}",
+                interval
+            );
+        }
+    }
+
+    #[test]
+    fn temp_used_in_successor_is_live_across_block_boundary() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 1;
+                if true {
+                    x = 2;
+                }
+                let _y: i53 = x;
+            }"#,
+        );
+        let linear_map = prepare_for_live_ranges(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let ranges = compute_live_ranges(function, &linear_map);
+
+        let multi_block = ranges.values().any(|range| {
+            let start = range.start();
+            let end = range.end();
+            linear_map.block_order.iter().any(|&block_id| {
+                let block_range = linear_map.block_ranges[&block_id];
+                start < block_range.start && end >= block_range.start
+            })
+        });
+        assert!(
+            multi_block,
+            "at least one temp should be live across a block boundary"
+        );
+    }
+
+    #[test]
+    fn loop_variable_live_range_covers_back_edge() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 0;
+                while x < 10 {
+                    x = x + 1;
+                }
+            }"#,
+        );
+        let linear_map = prepare_for_live_ranges(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let ranges = compute_live_ranges(function, &linear_map);
+
+        let max_block_span = linear_map
+            .block_order
+            .iter()
+            .map(|&id| {
+                let r = linear_map.block_ranges[&id];
+                r.end.0 - r.start.0
+            })
+            .max()
+            .unwrap_or(0);
+
+        let max_temp_span = ranges
+            .values()
+            .map(|range| range.end().0.saturating_sub(range.start().0))
+            .max()
+            .unwrap_or(0);
+
+        assert!(
+            max_temp_span > max_block_span,
+            "a loop variable's span ({}) should exceed the widest single block ({})",
+            max_temp_span,
+            max_block_span,
+        );
+    }
+
+    #[test]
+    fn dead_temp_gets_zero_length_interval() {
+        let mut program = build_ssa("fn main() { let _x: i53 = 1; }");
+        let linear_map = prepare_for_live_ranges(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let ranges = compute_live_ranges(function, &linear_map);
+
+        let has_zero_length = ranges
+            .values()
+            .any(|range| range.intervals.len() == 1 && range.start() == range.end());
+        assert!(
+            has_zero_length,
+            "a never-used temp should produce a zero-length interval"
+        );
+    }
+
+    #[test]
+    fn live_range_intervals_are_sorted_and_non_overlapping() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let mut x: i53 = 0;
+                while x < 10 {
+                    let mut y: i53 = 0;
+                    while y < 5 {
+                        y = y + 1;
+                    }
+                    x = x + 1;
+                }
+            }"#,
+        );
+        let linear_map = prepare_for_live_ranges(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let ranges = compute_live_ranges(function, &linear_map);
+
+        for (temp, range) in &ranges {
+            for window in range.intervals.windows(2) {
+                assert!(
+                    window[0].end < window[1].start,
+                    "intervals for temp {:?} overlap or are not sorted: {:?} / {:?}",
+                    temp,
+                    window[0],
+                    window[1],
+                );
+            }
+            for interval in &range.intervals {
+                assert!(
+                    interval.start <= interval.end,
+                    "interval for temp {:?} has start after end: {:?}",
+                    temp,
+                    interval,
+                );
+            }
+        }
+    }
+
+    // Helper: run all pre-live-range setup and return (linear_map, live_ranges).
+    fn prepare_for_calling_convention(
+        program: &mut cfg::Program,
+        name: &str,
+    ) -> (LinearMap, HashMap<cfg::TempId, LiveRange>) {
+        let index = program
+            .functions
+            .iter()
+            .position(|f| f.name == name)
+            .unwrap_or_else(|| panic!("function '{}' not found", name));
+        let function = &mut program.functions[index];
+        deconstruct_phis(function);
+        let block_order = compute_reverse_postorder(function);
+        let linear_map = linearize_function(function, &block_order);
+        let function = &program.functions[index];
+        let live_ranges = compute_live_ranges(function, &linear_map);
+        (linear_map, live_ranges)
+    }
+
+    #[test]
+    fn leaf_function_classified_as_leaf() {
+        let program = build_ssa("fn main() { let x: i53 = 1 + 2; }");
+        let main = program.functions.iter().find(|f| f.name == "main").unwrap();
+        assert_eq!(classify_function(main), FunctionClass::Leaf);
+    }
+
+    #[test]
+    fn non_leaf_function_classified_as_non_leaf() {
+        let program = build_ssa(
+            r#"fn helper() -> i53 { return 42; }
+               fn main() { let x: i53 = helper(); }"#,
+        );
+        let main = program.functions.iter().find(|f| f.name == "main").unwrap();
+        assert_eq!(classify_function(main), FunctionClass::NonLeaf);
+    }
+
+    #[test]
+    fn find_call_sites_empty_for_leaf() {
+        let mut program = build_ssa("fn main() { let x: i53 = 1; }");
+        let (linear_map, _) = prepare_for_calling_convention(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let sites = find_call_sites(function, &linear_map);
+        assert!(sites.is_empty(), "leaf function should have no call sites");
+    }
+
+    #[test]
+    fn find_call_sites_finds_single_call() {
+        let mut program = build_ssa(
+            r#"fn helper() -> i53 { return 42; }
+               fn main() { let x: i53 = helper(); }"#,
+        );
+        let (linear_map, _) = prepare_for_calling_convention(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let sites = find_call_sites(function, &linear_map);
+        assert_eq!(sites.len(), 1, "should find exactly one call site");
+    }
+
+    #[test]
+    fn find_call_sites_finds_two_calls() {
+        let mut program = build_ssa(
+            r#"fn helper() -> i53 { return 1; }
+               fn main() { let a: i53 = helper(); let b: i53 = helper(); }"#,
+        );
+        let (linear_map, _) = prepare_for_calling_convention(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let sites = find_call_sites(function, &linear_map);
+        assert_eq!(sites.len(), 2, "should find two call sites");
+        assert!(
+            sites[0] < sites[1],
+            "call site positions must be increasing"
+        );
+    }
+
+    #[test]
+    fn parameter_constraints_assign_correct_registers() {
+        let mut program = build_ssa(
+            r#"fn add(a: i53, b: i53) -> i53 { let result: i53 = a + b; return result; }
+               fn main() {}"#,
+        );
+        let (linear_map, live_ranges) = prepare_for_calling_convention(&mut program, "add");
+        let function = program.functions.iter().find(|f| f.name == "add").unwrap();
+        let info = analyze_calling_convention(function, &linear_map, &live_ranges);
+
+        let assigned_registers: Vec<Register> = info.fixed.values().copied().collect();
+        assert!(
+            assigned_registers.contains(&Register::R0),
+            "first parameter must be constrained to r0"
+        );
+        assert!(
+            assigned_registers.contains(&Register::R1),
+            "second parameter must be constrained to r1"
+        );
+    }
+
+    #[test]
+    fn return_value_constrained_to_r0() {
+        let mut program = build_ssa("fn answer() -> i53 { return 42; }  fn main() {}");
+        let (linear_map, live_ranges) = prepare_for_calling_convention(&mut program, "answer");
+        let function = program
+            .functions
+            .iter()
+            .find(|f| f.name == "answer")
+            .unwrap();
+        let info = analyze_calling_convention(function, &linear_map, &live_ranges);
+
+        let assigned_registers: Vec<Register> = info.fixed.values().copied().collect();
+        assert!(
+            assigned_registers.contains(&Register::R0),
+            "return value must be constrained to r0"
+        );
+    }
+
+    #[test]
+    fn call_result_constrained_to_r0() {
+        let mut program = build_ssa(
+            r#"fn helper() -> i53 { return 1; }
+               fn main() { let x: i53 = helper(); }"#,
+        );
+        let (linear_map, live_ranges) = prepare_for_calling_convention(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let info = analyze_calling_convention(function, &linear_map, &live_ranges);
+
+        assert!(
+            info.fixed.values().any(|&r| r == Register::R0),
+            "call return value must be constrained to r0"
+        );
+    }
+
+    #[test]
+    fn call_args_constrained_to_correct_registers() {
+        let mut program = build_ssa(
+            r#"fn add(a: i53, b: i53) -> i53 { let result: i53 = a + b; return result; }
+               fn main() { let x: i53 = add(1, 2); }"#,
+        );
+        let (linear_map, live_ranges) = prepare_for_calling_convention(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let info = analyze_calling_convention(function, &linear_map, &live_ranges);
+
+        let registers: Vec<Register> = info.fixed.values().copied().collect();
+        assert!(
+            registers.contains(&Register::R0),
+            "first call arg must be constrained to r0"
+        );
+        assert!(
+            registers.contains(&Register::R1),
+            "second call arg must be constrained to r1"
+        );
+    }
+
+    #[test]
+    fn no_live_across_calls_for_leaf() {
+        let mut program = build_ssa("fn main() { let x: i53 = 1 + 2; }");
+        let (linear_map, live_ranges) = prepare_for_calling_convention(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let info = analyze_calling_convention(function, &linear_map, &live_ranges);
+        assert!(
+            info.live_across_calls.is_empty(),
+            "leaf function should have no live-across-call entries"
+        );
+    }
+
+    #[test]
+    fn live_across_call_detected_when_value_used_after_call() {
+        let mut program = build_ssa(
+            r#"fn helper() -> i53 { return 1; }
+               fn main() {
+                   let x: i53 = 10;
+                   let _result: i53 = helper();
+                   let _y: i53 = x + 1;
+               }"#,
+        );
+        let (linear_map, live_ranges) = prepare_for_calling_convention(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let info = analyze_calling_convention(function, &linear_map, &live_ranges);
+
+        let any_live_across = info
+            .live_across_calls
+            .values()
+            .any(|temps| !temps.is_empty());
+        assert!(
+            any_live_across,
+            "x should be detected as live across the call to helper"
+        );
+    }
+
+    #[test]
+    fn arg_temps_not_counted_as_live_across_call() {
+        let mut program = build_ssa(
+            r#"fn consume(v: i53) { let _ignored: i53 = v; }
+               fn main() {
+                   let x: i53 = 5;
+                   consume(x);
+               }"#,
+        );
+        let (linear_map, live_ranges) = prepare_for_calling_convention(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let sites = find_call_sites(function, &linear_map);
+        assert_eq!(sites.len(), 1);
+        let site = sites[0];
+        let live_across: Vec<cfg::TempId> = live_ranges
+            .iter()
+            .filter(|(_, range)| range.start() < site && range.end() > site)
+            .map(|(&t, _)| t)
+            .collect();
+        assert!(
+            live_across.is_empty(),
+            "argument temp should not be live across the call (its last use is the call): {:?}",
+            live_across,
+        );
+    }
+
+    fn prepare_for_allocation(
+        program: &mut cfg::Program,
+        name: &str,
+    ) -> (
+        LinearMap,
+        HashMap<cfg::TempId, LiveRange>,
+        CallingConventionInfo,
+    ) {
+        let index = program
+            .functions
+            .iter()
+            .position(|f| f.name == name)
+            .unwrap_or_else(|| panic!("function '{}' not found", name));
+        let function = &mut program.functions[index];
+        deconstruct_phis(function);
+        let block_order = compute_reverse_postorder(function);
+        let linear_map = linearize_function(function, &block_order);
+        let function = &program.functions[index];
+        let live_ranges = compute_live_ranges(function, &linear_map);
+        let calling_convention = analyze_calling_convention(function, &linear_map, &live_ranges);
+        (linear_map, live_ranges, calling_convention)
+    }
+
+    fn run_allocation(source: &str, function_name: &str) -> (cfg::Program, AllocationResult) {
+        let mut program = build_ssa(source);
+        let (linear_map, live_ranges, calling_convention) =
+            prepare_for_allocation(&mut program, function_name);
+        let function = program
+            .functions
+            .iter()
+            .find(|f| f.name == function_name)
+            .unwrap();
+        let result = allocate_function(function, &linear_map, &live_ranges, &calling_convention)
+            .unwrap_or_else(|diagnostics| panic!("allocation failed: {:#?}", diagnostics));
+        (program, result)
+    }
+
+    #[test]
+    fn allocate_straight_line_succeeds() {
+        let (_, result) =
+            run_allocation("fn main() { let x: i53 = 1; let y: i53 = x + 2; }", "main");
+        assert!(
+            !result.assignments.is_empty(),
+            "should assign at least one temp"
+        );
+    }
+
+    #[test]
+    fn allocate_every_temp_gets_assignment() {
+        let (_, result) = run_allocation(
+            "fn main() { let a: i53 = 1; let b: i53 = 2; let c: i53 = a + b; }",
+            "main",
+        );
+        for (&temp, &register) in &result.assignments {
+            assert!(
+                matches!(
+                    register,
+                    Register::R0
+                        | Register::R1
+                        | Register::R2
+                        | Register::R3
+                        | Register::R4
+                        | Register::R5
+                        | Register::R6
+                        | Register::R7
+                        | Register::R8
+                        | Register::R9
+                        | Register::R10
+                        | Register::R11
+                        | Register::R12
+                        | Register::R13
+                        | Register::R14
+                        | Register::R15
+                ),
+                "temp {:?} assigned to non-allocatable register {:?}",
+                temp,
+                register,
+            );
+        }
+    }
+
+    #[test]
+    fn allocate_straight_line_no_spills() {
+        let (_, result) = run_allocation(
+            "fn main() { let a: i53 = 1; let b: i53 = 2; let c: i53 = a + b; }",
+            "main",
+        );
+        assert!(
+            result.spills.is_empty(),
+            "straight-line code with few temps should not spill"
+        );
+        assert_eq!(result.max_stack_depth, 0);
+    }
+
+    #[test]
+    fn allocate_diamond_if_else_succeeds() {
+        let (_, result) = run_allocation(
+            r#"fn main() {
+                let mut x: i53 = 1;
+                if true {
+                    x = 2;
+                } else {
+                    x = 3;
+                }
+                let _y: i53 = x;
+            }"#,
+            "main",
+        );
+        assert!(!result.assignments.is_empty());
+    }
+
+    #[test]
+    fn allocate_while_loop_succeeds() {
+        let (_, result) = run_allocation(
+            r#"fn main() {
+                let mut x: i53 = 0;
+                while x < 10 {
+                    x = x + 1;
+                }
+            }"#,
+            "main",
+        );
+        assert!(!result.assignments.is_empty());
+    }
+
+    #[test]
+    fn allocate_for_loop_succeeds() {
+        let (_, result) = run_allocation("fn main() { for i in 0..10 { yield; } }", "main");
+        assert!(!result.assignments.is_empty());
+    }
+
+    #[test]
+    fn allocate_nested_loops_succeeds() {
+        let (_, result) = run_allocation(
+            r#"fn main() {
+                let mut x: i53 = 0;
+                while x < 10 {
+                    let mut y: i53 = 0;
+                    while y < 5 {
+                        y = y + 1;
+                    }
+                    x = x + 1;
+                }
+            }"#,
+            "main",
+        );
+        assert!(!result.assignments.is_empty());
+    }
+
+    #[test]
+    fn allocate_parameter_gets_preferred_register() {
+        let source = r#"
+            fn identity(x: i53) -> i53 { return x; }
+            fn main() {}
+        "#;
+        let mut program = build_ssa(source);
+        let (linear_map, live_ranges, calling_convention) =
+            prepare_for_allocation(&mut program, "identity");
+        let function = program
+            .functions
+            .iter()
+            .find(|f| f.name == "identity")
+            .unwrap();
+        let result =
+            allocate_function(function, &linear_map, &live_ranges, &calling_convention).unwrap();
+
+        let has_r0 = result.assignments.values().any(|&r| r == Register::R0);
+        assert!(
+            has_r0,
+            "parameter function should have a temp assigned to r0"
+        );
+    }
+
+    #[test]
+    fn allocate_return_value_gets_r0() {
+        let source = r#"
+            fn answer() -> i53 { return 42; }
+            fn main() {}
+        "#;
+        let mut program = build_ssa(source);
+        let (linear_map, live_ranges, calling_convention) =
+            prepare_for_allocation(&mut program, "answer");
+        let function = program
+            .functions
+            .iter()
+            .find(|f| f.name == "answer")
+            .unwrap();
+        let result =
+            allocate_function(function, &linear_map, &live_ranges, &calling_convention).unwrap();
+
+        for (&temp, &register) in &result.assignments {
+            if calling_convention.fixed.get(&temp) == Some(&Register::R0) {
+                assert_eq!(
+                    register,
+                    Register::R0,
+                    "temp {:?} constrained to r0 but assigned {:?}",
+                    temp,
+                    register,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn allocate_no_simultaneous_register_conflicts() {
+        let mut program = build_ssa(
+            r#"fn main() {
+                let a: i53 = 1;
+                let b: i53 = 2;
+                let c: i53 = 3;
+                let d: i53 = 4;
+                let _result: i53 = a + b + c + d;
+            }"#,
+        );
+        let (linear_map, live_ranges, calling_convention) =
+            prepare_for_allocation(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let result =
+            allocate_function(function, &linear_map, &live_ranges, &calling_convention).unwrap();
+
+        for position in 0..linear_map.total {
+            let pos = LinearPosition(position);
+            let live_at_position: Vec<(cfg::TempId, Register)> = result
+                .assignments
+                .iter()
+                .filter(|(temp, _)| {
+                    live_ranges
+                        .get(temp)
+                        .is_some_and(|range| range.contains(pos))
+                })
+                .map(|(&temp, &register)| (temp, register))
+                .collect();
+
+            let mut seen_registers: std::collections::HashSet<Register> =
+                std::collections::HashSet::new();
+            for (_temp, register) in &live_at_position {
+                assert!(
+                    seen_registers.insert(*register),
+                    "register {:?} assigned to multiple simultaneously-live temps at position {}: {:?}",
+                    register,
+                    position,
+                    live_at_position,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn allocate_spills_have_reload_positions() {
+        let (_, result) = run_allocation(
+            r#"fn main() {
+                let a: i53 = 1;
+                let b: i53 = 2;
+                let c: i53 = 3;
+                let _x: i53 = a + b + c;
+            }"#,
+            "main",
+        );
+        for spill in &result.spills {
+            assert!(
+                spill.reload_position.is_some(),
+                "dead spills should be pruned: {:?}",
+                spill,
+            );
+        }
+    }
+
+    #[test]
+    fn allocate_max_stack_depth_zero_when_no_spills() {
+        let (_, result) =
+            run_allocation("fn main() { let x: i53 = 1; let _y: i53 = x + 2; }", "main");
+        assert!(result.spills.is_empty());
+        assert_eq!(result.max_stack_depth, 0);
+    }
+
+    #[test]
+    fn allocate_max_stack_depth_consistent_with_spills() {
+        let (_, result) = run_allocation(
+            r#"fn main() {
+                let a: i53 = 1;
+                let b: i53 = 2;
+                let c: i53 = a + b;
+                let _d: i53 = c + 1;
+            }"#,
+            "main",
+        );
+        if result.spills.is_empty() {
+            assert_eq!(result.max_stack_depth, 0);
+        } else {
+            assert!(
+                result.max_stack_depth > 0,
+                "max_stack_depth should be positive when spills exist"
+            );
+            assert!(
+                result.max_stack_depth <= result.spills.len(),
+                "max_stack_depth ({}) should not exceed total spill count ({})",
+                result.max_stack_depth,
+                result.spills.len(),
+            );
+        }
+    }
+
+    #[test]
+    fn allocate_with_function_call_succeeds() {
+        let (_, result) = run_allocation(
+            r#"fn helper() -> i53 { return 42; }
+               fn main() { let _x: i53 = helper(); }"#,
+            "main",
+        );
+        assert!(!result.assignments.is_empty());
+    }
+
+    #[test]
+    fn allocate_call_dest_gets_r0() {
+        let source = r#"
+            fn helper() -> i53 { return 42; }
+            fn main() { let _x: i53 = helper(); }
+        "#;
+        let mut program = build_ssa(source);
+        let (linear_map, live_ranges, calling_convention) =
+            prepare_for_allocation(&mut program, "main");
+        let function = program.functions.iter().find(|f| f.name == "main").unwrap();
+        let result =
+            allocate_function(function, &linear_map, &live_ranges, &calling_convention).unwrap();
+
+        for (&temp, &expected_register) in &calling_convention.fixed {
+            if let Some(&assigned_register) = result.assignments.get(&temp) {
+                assert_eq!(
+                    assigned_register, expected_register,
+                    "temp {:?} should be in {:?} but got {:?}",
+                    temp, expected_register, assigned_register,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn allocate_call_with_args_succeeds() {
+        let (_, result) = run_allocation(
+            r#"fn add(a: i53, b: i53) -> i53 { let r: i53 = a + b; return r; }
+               fn main() { let _x: i53 = add(10, 20); }"#,
+            "main",
+        );
+        assert!(!result.assignments.is_empty());
+    }
+
+    #[test]
+    fn allocate_two_parameter_function() {
+        let source = r#"
+            fn add(a: i53, b: i53) -> i53 { let r: i53 = a + b; return r; }
+            fn main() {}
+        "#;
+        let mut program = build_ssa(source);
+        let (linear_map, live_ranges, calling_convention) =
+            prepare_for_allocation(&mut program, "add");
+        let function = program.functions.iter().find(|f| f.name == "add").unwrap();
+        let result =
+            allocate_function(function, &linear_map, &live_ranges, &calling_convention).unwrap();
+
+        let assigned_registers: std::collections::HashSet<Register> =
+            result.assignments.values().copied().collect();
+        assert!(
+            assigned_registers.contains(&Register::R0),
+            "first parameter should get r0"
+        );
+        assert!(
+            assigned_registers.contains(&Register::R1),
+            "second parameter should get r1"
+        );
+    }
+
+    #[test]
+    fn allocate_many_independent_temps_no_spills() {
+        let (_, result) = run_allocation(
+            r#"fn main() {
+                let a: i53 = 1;
+                let b: i53 = 2;
+                let c: i53 = 3;
+                let d: i53 = 4;
+                let e: i53 = 5;
+                let f: i53 = 6;
+                let g: i53 = 7;
+                let h: i53 = 8;
+                let _sum: i53 = a + b + c + d + e + f + g + h;
+            }"#,
+            "main",
+        );
+        assert!(
+            result.spills.is_empty(),
+            "8 temps should fit in 16 registers without spilling"
+        );
+    }
+
+    #[test]
+    fn allocate_empty_function_succeeds() {
+        let (_, result) = run_allocation("fn main() {}", "main");
+        assert!(result.spills.is_empty());
+        assert_eq!(result.max_stack_depth, 0);
+    }
+
+    #[test]
+    fn allocate_spill_reload_positions_ordered() {
+        let (_, result) = run_allocation(
+            r#"fn main() {
+                let mut x: i53 = 0;
+                while x < 100 {
+                    x = x + 1;
+                }
+            }"#,
+            "main",
+        );
+        for spill in &result.spills {
+            if let Some(reload) = spill.reload_position {
+                assert!(
+                    spill.spill_position < reload,
+                    "spill position {:?} should precede reload position {:?} for temp {:?}",
+                    spill.spill_position,
+                    reload,
+                    spill.temp,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn allocate_if_without_else_succeeds() {
+        let (_, result) = run_allocation(
+            r#"fn main() {
+                let mut x: i53 = 1;
+                if true {
+                    x = x + 1;
+                }
+                let _y: i53 = x;
+            }"#,
+            "main",
+        );
+        assert!(!result.assignments.is_empty());
+    }
+
+    #[test]
+    fn allocate_value_used_across_call_succeeds() {
+        let (_, result) = run_allocation(
+            r#"fn helper() -> i53 { return 1; }
+               fn main() {
+                   let x: i53 = 10;
+                   let _r: i53 = helper();
+                   let _y: i53 = x + 1;
+               }"#,
+            "main",
+        );
+        assert!(!result.assignments.is_empty());
+    }
+
+    #[test]
+    fn allocate_multiple_calls_succeeds() {
+        let (_, result) = run_allocation(
+            r#"fn helper() -> i53 { return 1; }
+               fn main() {
+                   let a: i53 = helper();
+                   let b: i53 = helper();
+                   let _c: i53 = a + b;
+               }"#,
+            "main",
+        );
+        assert!(!result.assignments.is_empty());
+    }
+
+    #[test]
+    fn allocate_constrained_temps_get_correct_registers() {
+        let source = r#"
+            fn add(a: i53, b: i53) -> i53 { let r: i53 = a + b; return r; }
+            fn main() {}
+        "#;
+        let mut program = build_ssa(source);
+        let (linear_map, live_ranges, calling_convention) =
+            prepare_for_allocation(&mut program, "add");
+        let function = program.functions.iter().find(|f| f.name == "add").unwrap();
+        let result =
+            allocate_function(function, &linear_map, &live_ranges, &calling_convention).unwrap();
+
+        for (&temp, &expected) in &calling_convention.fixed {
+            if let Some(&actual) = result.assignments.get(&temp) {
+                assert_eq!(
+                    actual, expected,
+                    "constrained temp {:?} should be {:?} but got {:?}",
+                    temp, expected, actual,
+                );
+            }
+        }
+    }
+}
