@@ -14,7 +14,8 @@ pub use calling_convention::{
     find_call_sites, find_live_across_calls,
 };
 pub use emitter::{
-    EmittedCallSite, compute_clobber_sets, emit_function, insert_caller_saves, resolve_labels,
+    EmittedCallSite, compute_clobber_sets, emit_function, insert_callee_saves,
+    insert_caller_saves, resolve_labels,
 };
 pub use ic10::{IC10Function, IC10Instruction, IC10Program, JumpTarget, Operand, Register};
 pub use liveness::{
@@ -70,6 +71,11 @@ pub fn allocate_registers(
     let clobber_sets = compute_clobber_sets(&ic10_functions);
     for (function, call_sites) in ic10_functions.iter_mut().zip(all_call_sites.iter()) {
         insert_caller_saves(function, call_sites, &clobber_sets);
+    }
+
+    // Callee-save: insert push/pop for r8–r15 at function entry/exit.
+    for function in &mut ic10_functions {
+        insert_callee_saves(function);
     }
 
     // Order functions: main first, then others in declaration order.
@@ -1765,5 +1771,165 @@ mod tests {
             "should produce a warning about exceeding 128-line limit, got: {:#?}",
             diagnostics,
         );
+    }
+
+    #[test]
+    fn leaf_function_prefers_low_registers() {
+        let source = r#"
+            fn leaf(x: i53) -> i53 {
+                let a: i53 = x + 1;
+                let b: i53 = a + 2;
+                return b;
+            }
+            fn main() {}
+        "#;
+        let mut program = build_ssa(source);
+        let (linear_map, live_ranges, calling_convention) =
+            prepare_for_allocation(&mut program, "leaf");
+        assert_eq!(calling_convention.function_class, FunctionClass::Leaf);
+        let function = program
+            .functions
+            .iter()
+            .find(|f| f.name == "leaf")
+            .unwrap();
+        let result =
+            allocate_function(function, &linear_map, &live_ranges, &calling_convention).unwrap();
+        for &register in result.assignments.values() {
+            assert!(
+                register.is_caller_saved(),
+                "leaf function should prefer r0-r7, but got {:?}",
+                register,
+            );
+        }
+    }
+
+    #[test]
+    fn non_leaf_function_prefers_callee_saved_registers() {
+        let source = r#"
+            fn helper() -> i53 { return 42; }
+            fn caller() -> i53 {
+                let x: i53 = 10;
+                let _result: i53 = helper();
+                let value: i53 = x + 1;
+                return value;
+            }
+            fn main() { let _x: i53 = caller(); }
+        "#;
+        let mut program = build_ssa(source);
+        let (linear_map, live_ranges, calling_convention) =
+            prepare_for_allocation(&mut program, "caller");
+        assert_eq!(calling_convention.function_class, FunctionClass::NonLeaf);
+        let function = program
+            .functions
+            .iter()
+            .find(|f| f.name == "caller")
+            .unwrap();
+        let result =
+            allocate_function(function, &linear_map, &live_ranges, &calling_convention).unwrap();
+        let has_callee_saved = result
+            .assignments
+            .values()
+            .any(|register| register.is_callee_saved());
+        assert!(
+            has_callee_saved,
+            "non-leaf function should use callee-saved registers (r8-r15)"
+        );
+    }
+
+    #[test]
+    fn end_to_end_callee_save_push_pop() {
+        let program = compile_to_ic10(
+            r#"
+            fn helper() -> i53 { return 42; }
+            fn caller() -> i53 {
+                let x: i53 = 10;
+                let _result: i53 = helper();
+                let value: i53 = x + 1;
+                return value;
+            }
+            fn main() { let _x: i53 = caller(); }
+            "#,
+        );
+        let caller_fn = program
+            .functions
+            .iter()
+            .find(|f| f.name == "caller")
+            .expect("should have caller function");
+        let callee_saved_pushes: Vec<_> = caller_fn
+            .instructions
+            .iter()
+            .filter(|instruction| {
+                if let IC10Instruction::Push(Operand::Register(register)) = instruction {
+                    register.is_callee_saved()
+                } else {
+                    false
+                }
+            })
+            .collect();
+        let callee_saved_pops: Vec<_> = caller_fn
+            .instructions
+            .iter()
+            .filter(|instruction| {
+                if let IC10Instruction::Pop(register) = instruction {
+                    register.is_callee_saved()
+                } else {
+                    false
+                }
+            })
+            .collect();
+        assert_eq!(
+            callee_saved_pushes.len(),
+            callee_saved_pops.len(),
+            "callee-saved pushes and pops must be balanced"
+        );
+        if !callee_saved_pushes.is_empty() {
+            assert!(
+                callee_saved_pushes.len() >= 1,
+                "should have at least one callee-saved push/pop pair"
+            );
+        }
+    }
+
+    #[test]
+    fn end_to_end_callee_save_no_caller_save_for_r8_plus() {
+        let program = compile_to_ic10(
+            r#"
+            fn helper() -> i53 { return 42; }
+            fn caller() -> i53 {
+                let x: i53 = 10;
+                let _result: i53 = helper();
+                let value: i53 = x + 1;
+                return value;
+            }
+            fn main() { let _x: i53 = caller(); }
+            "#,
+        );
+        let caller_fn = program
+            .functions
+            .iter()
+            .find(|f| f.name == "caller")
+            .expect("should have caller function");
+
+        let instructions = &caller_fn.instructions;
+        let jal_indices: Vec<usize> = instructions
+            .iter()
+            .enumerate()
+            .filter(|(_, instruction)| matches!(instruction, IC10Instruction::JumpAndLink(..)))
+            .map(|(i, _)| i)
+            .collect();
+
+        for &jal_index in &jal_indices {
+            if jal_index > 0 {
+                if let IC10Instruction::Push(Operand::Register(register)) =
+                    &instructions[jal_index - 1]
+                {
+                    assert!(
+                        !register.is_callee_saved(),
+                        "callee-saved register {:?} should not be caller-saved around a call",
+                        register,
+                    );
+                }
+            }
+        }
     }
 }

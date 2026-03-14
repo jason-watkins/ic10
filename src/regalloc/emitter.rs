@@ -754,15 +754,7 @@ fn register_for_index(index: usize) -> Register {
         5 => Register::R5,
         6 => Register::R6,
         7 => Register::R7,
-        8 => Register::R8,
-        9 => Register::R9,
-        10 => Register::R10,
-        11 => Register::R11,
-        12 => Register::R12,
-        13 => Register::R13,
-        14 => Register::R14,
-        15 => Register::R15,
-        _ => panic!("argument index {} exceeds IC10 register file", index),
+        _ => panic!("argument index {} exceeds maximum of 8 parameters", index),
     }
 }
 
@@ -978,6 +970,7 @@ pub fn insert_caller_saves(
         let registers_to_save: Vec<Register> = site
             .live_across_registers
             .iter()
+            .filter(|register| register.is_caller_saved())
             .filter(|register| combined_clobber.contains(register))
             .copied()
             .collect();
@@ -1011,5 +1004,84 @@ pub fn insert_caller_saves(
         }
 
         offset += push_count + pop_count;
+    }
+}
+
+/// Insert callee-save push/pop instructions for registers `r8`–`r15` in a function.
+///
+/// Scans the function's instruction list to find which callee-saved registers are
+/// written, then inserts `push` at the function entry (after the label and any `push ra`)
+/// and `pop` before each return sequence (`pop ra` + `j ra` or just `j ra`).
+///
+/// Entry functions (`main`) do not need callee-saves because they are not called via `jal`.
+pub fn insert_callee_saves(function: &mut IC10Function) {
+    if function.is_entry {
+        return;
+    }
+
+    let mut used_callee_saved: Vec<Register> = function
+        .instructions
+        .iter()
+        .filter_map(|instruction| instruction.written_register())
+        .filter(|register| register.is_callee_saved())
+        .collect::<std::collections::HashSet<Register>>()
+        .into_iter()
+        .collect();
+
+    if used_callee_saved.is_empty() {
+        return;
+    }
+
+    used_callee_saved.sort();
+
+    let entry_insert_index = function
+        .instructions
+        .iter()
+        .position(|instruction| {
+            !matches!(instruction, IC10Instruction::Label(_))
+                && !matches!(
+                    instruction,
+                    IC10Instruction::Push(Operand::Register(Register::Ra))
+                )
+        })
+        .unwrap_or(function.instructions.len());
+
+    let pushes: Vec<IC10Instruction> = used_callee_saved
+        .iter()
+        .map(|&register| IC10Instruction::Push(Operand::Register(register)))
+        .collect();
+    let push_count = pushes.len();
+    for (i, push) in pushes.into_iter().enumerate() {
+        function.instructions.insert(entry_insert_index + i, push);
+    }
+
+    let pops: Vec<IC10Instruction> = used_callee_saved
+        .iter()
+        .rev()
+        .map(|&register| IC10Instruction::Pop(register))
+        .collect();
+
+    let mut index = push_count;
+    while index < function.instructions.len() {
+        if matches!(
+            &function.instructions[index],
+            IC10Instruction::Jump(JumpTarget::Register(Register::Ra))
+        ) {
+            let pop_before = if index > 0
+                && matches!(
+                    &function.instructions[index - 1],
+                    IC10Instruction::Pop(Register::Ra)
+                ) {
+                index - 1
+            } else {
+                index
+            };
+            for (i, pop) in pops.iter().enumerate() {
+                function.instructions.insert(pop_before + i, pop.clone());
+            }
+            index += pops.len() + 1;
+        } else {
+            index += 1;
+        }
     }
 }

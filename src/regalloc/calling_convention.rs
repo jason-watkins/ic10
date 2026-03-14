@@ -58,18 +58,7 @@ fn register_for_index(index: usize) -> Register {
         5 => Register::R5,
         6 => Register::R6,
         7 => Register::R7,
-        8 => Register::R8,
-        9 => Register::R9,
-        10 => Register::R10,
-        11 => Register::R11,
-        12 => Register::R12,
-        13 => Register::R13,
-        14 => Register::R14,
-        15 => Register::R15,
-        _ => panic!(
-            "argument index {} exceeds available registers (max 15)",
-            index
-        ),
+        _ => panic!("argument index {} exceeds maximum of 8 parameters", index),
     }
 }
 

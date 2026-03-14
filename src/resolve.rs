@@ -198,6 +198,16 @@ impl Resolver {
                     self.define(d.name.clone(), ScopeEntry::Device(d.pin));
                 }
                 Item::Fn(f) => {
+                    if f.params.len() > 8 {
+                        self.error(
+                            f.span,
+                            format!(
+                                "function `{}` has {} parameters, but the maximum is 8",
+                                f.name,
+                                f.params.len()
+                            ),
+                        );
+                    }
                     let return_type = f.return_type.unwrap_or(Type::Unit);
                     let parameter_types: Vec<Type> = f.params.iter().map(|p| p.ty).collect();
                     let symbol_id = self.allocate_symbol(SymbolInfo {
@@ -1358,6 +1368,21 @@ mod tests {
             "fn f(x: i53) -> i53 { return x; } fn main() { let r = f(1, 2); }",
             "expects 1 argument(s), found 2"
         ));
+    }
+
+    #[test]
+    fn too_many_parameters_is_error() {
+        assert!(has_error(
+            "fn many(a: i53, b: i53, c: i53, d: i53, e: i53, f: i53, g: i53, h: i53, i: i53) -> i53 { return a; } fn main() {}",
+            "has 9 parameters, but the maximum is 8"
+        ));
+    }
+
+    #[test]
+    fn eight_parameters_is_ok() {
+        resolve_ok(
+            "fn eight(a: i53, b: i53, c: i53, d: i53, e: i53, f: i53, g: i53, h: i53) -> i53 { return a; } fn main() {}",
+        );
     }
 
     // 4.9 — device assignment target

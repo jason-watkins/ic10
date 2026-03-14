@@ -30,6 +30,36 @@ impl Register {
     pub fn is_general_purpose(&self) -> bool {
         !matches!(self, Register::Ra | Register::Sp)
     }
+
+    /// Returns `true` for caller-saved (scratch) registers `R0`–`R7`.
+    pub fn is_caller_saved(&self) -> bool {
+        matches!(
+            self,
+            Register::R0
+                | Register::R1
+                | Register::R2
+                | Register::R3
+                | Register::R4
+                | Register::R5
+                | Register::R6
+                | Register::R7
+        )
+    }
+
+    /// Returns `true` for callee-saved registers `R8`–`R15`.
+    pub fn is_callee_saved(&self) -> bool {
+        matches!(
+            self,
+            Register::R8
+                | Register::R9
+                | Register::R10
+                | Register::R11
+                | Register::R12
+                | Register::R13
+                | Register::R14
+                | Register::R15
+        )
+    }
 }
 
 /// An instruction source operand — either a physical register or an inline literal constant.

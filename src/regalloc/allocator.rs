@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::cfg::{Function, TempId};
 use crate::diagnostic::{Diagnostic, Span};
 
-use super::calling_convention::CallingConventionInfo;
+use super::calling_convention::{CallingConventionInfo, FunctionClass};
 use super::ic10::Register;
 use super::liveness::{LinearMap, LinearPosition, LiveRange, instruction_uses, terminator_uses};
 
@@ -31,12 +31,26 @@ const ALLOCATABLE_REGISTERS: [Register; 16] = [
 struct RegisterPool {
     /// `available[i]` is `true` when `ALLOCATABLE_REGISTERS[i]` is not in use.
     available: [bool; 16],
+    /// Preferred search order for `allocate_any`. Indices into `ALLOCATABLE_REGISTERS`.
+    preference_order: [usize; 16],
 }
 
+/// Leaf functions prefer r0–r7 (scratch/caller-saved), then r8–r15.
+const LEAF_PREFERENCE: [usize; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+
+/// Non-leaf functions prefer r8–r15 (callee-saved), then r0–r7.
+const NON_LEAF_PREFERENCE: [usize; 16] =
+    [8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7];
+
 impl RegisterPool {
-    fn new() -> Self {
+    fn new(function_class: FunctionClass) -> Self {
+        let preference_order = match function_class {
+            FunctionClass::Leaf => LEAF_PREFERENCE,
+            FunctionClass::NonLeaf => NON_LEAF_PREFERENCE,
+        };
         RegisterPool {
             available: [true; 16],
+            preference_order,
         }
     }
 
@@ -61,11 +75,11 @@ impl RegisterPool {
         }
     }
 
-    /// Pick any free register, preferring lower-numbered ones for determinism.
+    /// Pick any free register, using the preference order for the function class.
     fn allocate_any(&mut self) -> Option<Register> {
-        for (index, is_available) in self.available.iter_mut().enumerate() {
-            if *is_available {
-                *is_available = false;
+        for &index in &self.preference_order {
+            if self.available[index] {
+                self.available[index] = false;
                 return Some(ALLOCATABLE_REGISTERS[index]);
             }
         }
@@ -188,7 +202,7 @@ pub fn allocate_function(
         .collect();
     sorted_ranges.sort_by_key(|(temp, range)| (range.start(), temp.0));
 
-    let mut pool = RegisterPool::new();
+    let mut pool = RegisterPool::new(calling_convention.function_class);
     let mut active: Vec<ActiveEntry> = Vec::new();
     let mut assignments: HashMap<TempId, Register> = HashMap::new();
     let mut spills: Vec<SpillRecord> = Vec::new();
