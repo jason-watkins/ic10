@@ -430,7 +430,8 @@ mod tests {
             resolve(&ast).unwrap_or_else(|diagnostics| panic!("resolve errors: {diagnostics:#?}"));
         let (mut program, _) = cfg::build(&resolved);
         ssa::construct_program(&mut program);
-        opt::optimize_program(&mut program);
+        let opt_features = opt::Features::from_opt_level(opt::OptLevel::O2);
+        opt::optimize_program(&mut program, opt::OptLevel::O2, &opt_features);
         let ic10_program = regalloc::allocate_registers(&mut program, false)
             .unwrap_or_else(|diagnostics| panic!("regalloc errors: {diagnostics:#?}"));
         let (text, diagnostics) = generate(&ic10_program, false);

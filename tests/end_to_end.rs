@@ -1,7 +1,7 @@
 use ic20::cfg;
 use ic20::codegen;
 use ic20::diagnostic::Severity;
-use ic20::opt;
+use ic20::opt::{self, OptLevel};
 use ic20::parser;
 use ic20::regalloc;
 use ic20::resolve;
@@ -30,7 +30,8 @@ fn compile(source: &str) -> Result<String, String> {
     }
 
     ssa::construct_program(&mut program);
-    opt::optimize_program(&mut program);
+    let opt_features = ic20::opt::Features::from_opt_level(OptLevel::O2);
+    opt::optimize_program(&mut program, OptLevel::O2, &opt_features);
 
     let ic10_program = regalloc::allocate_registers(&mut program, false)
         .map_err(|diagnostics| format!("regalloc errors: {diagnostics:#?}"))?;

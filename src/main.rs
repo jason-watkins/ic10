@@ -1,41 +1,119 @@
 use std::path::PathBuf;
 use std::process;
+use std::str::FromStr;
 
 use clap::{Parser, ValueEnum};
 
 use ic20::cfg;
 use ic20::codegen;
 use ic20::diagnostic::{Diagnostic, Severity};
-use ic20::opt;
+use ic20::opt::{self, Features, OptLevel};
 use ic20::parser;
 use ic20::regalloc;
 use ic20::resolve;
 use ic20::ssa;
 
+/// An individual optimization pass that can be enabled or disabled with `-f`/`--feature`.
+#[derive(Clone, Copy, ValueEnum)]
+enum Feature {
+    #[value(name = "constant-propagation")]
+    ConstantPropagation,
+    #[value(name = "copy-propagation")]
+    CopyPropagation,
+    #[value(name = "global-value-numbering")]
+    GlobalValueNumbering,
+    #[value(name = "dead-code-elimination")]
+    DeadCodeElimination,
+    #[value(name = "block-simplification")]
+    BlockSimplification,
+    #[value(name = "block-deduplication")]
+    BlockDeduplication,
+    #[value(name = "inline")]
+    Inline,
+    #[value(name = "symbolic-labels")]
+    SymbolicLabels,
+}
+
+/// A feature toggle parsed from `-f <name>` (enable) or `-f no-<name>` (disable).
+#[derive(Clone)]
+struct FeatureToggle {
+    enable: bool,
+    feature: Feature,
+}
+
+impl FromStr for FeatureToggle {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (enable, name) = if let Some(rest) = s.strip_prefix("no-") {
+            (false, rest)
+        } else {
+            (true, s)
+        };
+        let feature = <Feature as ValueEnum>::from_str(name, true).map_err(|_| {
+            format!(
+                "unknown feature '{}'; valid features are: \
+                 constant-propagation, copy-propagation, global-value-numbering, \
+                 dead-code-elimination, block-simplification, block-deduplication, inline, symbolic-labels",
+                name
+            )
+        })?;
+        Ok(FeatureToggle { enable, feature })
+    }
+}
+
+fn apply_feature_toggles(features: &mut Features, toggles: &[FeatureToggle]) {
+    for toggle in toggles {
+        match toggle.feature {
+            Feature::ConstantPropagation => features.constant_propagation = toggle.enable,
+            Feature::CopyPropagation => features.copy_propagation = toggle.enable,
+            Feature::GlobalValueNumbering => features.global_value_numbering = toggle.enable,
+            Feature::DeadCodeElimination => features.dead_code_elimination = toggle.enable,
+            Feature::BlockSimplification => features.block_simplification = toggle.enable,
+            Feature::BlockDeduplication => features.block_deduplication = toggle.enable,
+            Feature::Inline => features.inline = toggle.enable,
+            Feature::SymbolicLabels => features.symbolic_labels = toggle.enable,
+        }
+    }
+}
+
 /// Optimization level controlling which compiler passes run and whether the output
 /// uses symbolic labels or resolved line numbers in jump targets.
 #[derive(Clone, Copy, Default, ValueEnum)]
 enum OptimizationLevel {
-    /// Disable all SSA optimization passes. Jump targets use symbolic labels.
+    /// Block simplifications only (unreachable block removal, block coalescing,
+    /// empty-block merging). Jump targets use symbolic labels.
     #[value(name = "0")]
     O0,
-    /// Standard optimizations (constant propagation, DCE, GVN, copy propagation).
-    /// Jump targets are resolved to absolute line numbers. This is the default.
-    #[default]
-    #[value(name = "1")]
-    O1,
-    /// Debug-friendly: run all optimizations but keep symbolic labels in the output.
+    /// Debug-friendly: single pass of all optimizations, no inlining.
+    /// Jump targets use symbolic labels.
     #[value(name = "g")]
     Og,
+    /// Single pass of all optimizations including inlining.
+    /// Jump targets are resolved to absolute line numbers.
+    #[value(name = "1")]
+    O1,
+    /// Full optimizing: fixpoint loop with inlining until convergence.
+    /// Jump targets are resolved to absolute line numbers. This is the default.
+    #[default]
+    #[value(name = "2")]
+    O2,
 }
 
 impl OptimizationLevel {
     fn keep_labels(self) -> bool {
         matches!(self, OptimizationLevel::O0 | OptimizationLevel::Og)
     }
+}
 
-    fn run_optimizations(self) -> bool {
-        matches!(self, OptimizationLevel::O1 | OptimizationLevel::Og)
+impl From<OptimizationLevel> for OptLevel {
+    fn from(level: OptimizationLevel) -> OptLevel {
+        match level {
+            OptimizationLevel::O0 => OptLevel::O0,
+            OptimizationLevel::Og => OptLevel::Og,
+            OptimizationLevel::O1 => OptLevel::O1,
+            OptimizationLevel::O2 => OptLevel::O2,
+        }
     }
 }
 
@@ -72,10 +150,17 @@ struct Arguments {
     #[arg(long)]
     dump_regmap: bool,
 
-    /// Optimization level: 1 (default, full optimizations), g (debug-friendly labels),
-    /// 0 (no optimizations, symbolic labels)
-    #[arg(short = 'O', value_name = "LEVEL", default_value = "1")]
+    /// Optimization level: 0 (block simplifications only), g (debug-friendly, single pass,
+    /// no inlining), 1 (single pass with inlining), 2 (full fixpoint, default)
+    #[arg(short = 'O', value_name = "LEVEL", default_value = "2")]
     optimization_level: OptimizationLevel,
+
+    /// Enable or disable an individual optimization pass or code generation feature.
+    /// May be passed multiple times. Use `no-<name>` to disable (e.g. `-f no-inline`).
+    /// Valid features: constant-propagation, copy-propagation, global-value-numbering,
+    /// dead-code-elimination, block-simplification, inline, symbolic-labels.
+    #[arg(short = 'f', long = "feature", value_name = "FEATURE")]
+    features: Vec<FeatureToggle>,
 }
 
 fn main() {
@@ -135,11 +220,13 @@ fn main() {
         process::exit(0);
     }
 
-    if arguments.optimization_level.run_optimizations() {
-        opt::optimize_program(&mut program);
-    }
+    let opt_level: OptLevel = arguments.optimization_level.into();
+    let mut opt_features = Features::from_opt_level(opt_level);
+    opt_features.symbolic_labels = arguments.optimization_level.keep_labels();
+    apply_feature_toggles(&mut opt_features, &arguments.features);
+    opt::optimize_program(&mut program, opt_level, &opt_features);
 
-    let keep_labels = arguments.optimization_level.keep_labels();
+    let keep_labels = opt_features.symbolic_labels;
     let ic10_program = match regalloc::allocate_registers(&mut program, keep_labels) {
         Ok(result) => result,
         Err(diagnostics) => {
