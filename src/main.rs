@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 use ic20::cfg;
 use ic20::codegen;
@@ -11,6 +11,33 @@ use ic20::parser;
 use ic20::regalloc;
 use ic20::resolve;
 use ic20::ssa;
+
+/// Optimization level controlling which compiler passes run and whether the output
+/// uses symbolic labels or resolved line numbers in jump targets.
+#[derive(Clone, Copy, Default, ValueEnum)]
+enum OptimizationLevel {
+    /// Disable all SSA optimization passes. Jump targets use symbolic labels.
+    #[value(name = "0")]
+    O0,
+    /// Standard optimizations (constant propagation, DCE, GVN, copy propagation).
+    /// Jump targets are resolved to absolute line numbers. This is the default.
+    #[default]
+    #[value(name = "1")]
+    O1,
+    /// Debug-friendly: run all optimizations but keep symbolic labels in the output.
+    #[value(name = "g")]
+    Og,
+}
+
+impl OptimizationLevel {
+    fn keep_labels(self) -> bool {
+        matches!(self, OptimizationLevel::O0 | OptimizationLevel::Og)
+    }
+
+    fn run_optimizations(self) -> bool {
+        matches!(self, OptimizationLevel::O1 | OptimizationLevel::Og)
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -44,6 +71,11 @@ struct Arguments {
     /// Dump the register allocation map and exit
     #[arg(long)]
     dump_regmap: bool,
+
+    /// Optimization level: 1 (default, full optimizations), g (debug-friendly labels),
+    /// 0 (no optimizations, symbolic labels)
+    #[arg(short = 'O', value_name = "LEVEL", default_value = "1")]
+    optimization_level: OptimizationLevel,
 }
 
 fn main() {
@@ -103,9 +135,12 @@ fn main() {
         process::exit(0);
     }
 
-    opt::optimize_program(&mut program);
+    if arguments.optimization_level.run_optimizations() {
+        opt::optimize_program(&mut program);
+    }
 
-    let ic10_program = match regalloc::allocate_registers(&mut program) {
+    let keep_labels = arguments.optimization_level.keep_labels();
+    let ic10_program = match regalloc::allocate_registers(&mut program, keep_labels) {
         Ok(result) => result,
         Err(diagnostics) => {
             emit_diagnostics(&diagnostics, &source, &filename);
@@ -118,7 +153,7 @@ fn main() {
         process::exit(0);
     }
 
-    let (ic10_text, codegen_diagnostics) = codegen::generate(&ic10_program);
+    let (ic10_text, codegen_diagnostics) = codegen::generate(&ic10_program, keep_labels);
     if emit_diagnostics_and_check_errors(&codegen_diagnostics, &source, &filename) {
         process::exit(1);
     }

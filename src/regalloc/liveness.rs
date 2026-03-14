@@ -195,7 +195,7 @@ pub(crate) fn instruction_uses(instruction: &Instruction) -> Vec<TempId> {
 fn operation_uses(operation: &Operation) -> Vec<TempId> {
     match operation {
         Operation::Copy(source) => vec![*source],
-        Operation::Constant(_) => vec![],
+        Operation::Constant(_) | Operation::Parameter { .. } => vec![],
         Operation::Binary { left, right, .. } => vec![*left, *right],
         Operation::Unary { operand, .. } => vec![*operand],
         Operation::Cast { operand, .. } => vec![*operand],

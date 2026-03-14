@@ -162,7 +162,7 @@ fn instruction_uses(instruction: &Instruction) -> Vec<TempId> {
     match instruction {
         Instruction::Assign { operation, .. } => match operation {
             Operation::Copy(source) => vec![*source],
-            Operation::Constant(_) => vec![],
+            Operation::Constant(_) | Operation::Parameter { .. } => vec![],
             Operation::Binary { left, right, .. } => vec![*left, *right],
             Operation::Unary { operand, .. } => vec![*operand],
             Operation::Cast { operand, .. } => vec![*operand],
@@ -463,7 +463,7 @@ fn rename_operands(
             Operation::Copy(source) => {
                 rename_temp(source, definition_map, stacks);
             }
-            Operation::Constant(_) => {}
+            Operation::Constant(_) | Operation::Parameter { .. } => {}
             Operation::Binary { left, right, .. } => {
                 rename_temp(left, definition_map, stacks);
                 rename_temp(right, definition_map, stacks);

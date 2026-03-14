@@ -377,11 +377,18 @@ const IC10_LINE_LIMIT: usize = 128;
 /// Returns the complete IC10 program as a newline-separated string and a
 /// (possibly empty) list of diagnostics. If the output exceeds the 128-line
 /// IC10 limit a warning diagnostic is included but the text is still returned.
-pub fn generate(program: &IC10Program) -> (String, Vec<Diagnostic>) {
+///
+/// When `keep_labels` is `true`, `IC10Instruction::Label` pseudo-instructions
+/// are emitted as `"name:"` lines and jump targets remain as symbolic label
+/// names rather than resolved line numbers.
+pub fn generate(program: &IC10Program, keep_labels: bool) -> (String, Vec<Diagnostic>) {
     let mut lines: Vec<String> = Vec::new();
     for function in &program.functions {
         for instruction in &function.instructions {
-            if matches!(instruction, IC10Instruction::Label(_)) {
+            if let IC10Instruction::Label(name) = instruction {
+                if keep_labels {
+                    lines.push(format!("{name}:"));
+                }
                 continue;
             }
             lines.push(instruction.to_string());
@@ -424,9 +431,9 @@ mod tests {
         let (mut program, _) = cfg::build(&resolved);
         ssa::construct_program(&mut program);
         opt::optimize_program(&mut program);
-        let ic10_program = regalloc::allocate_registers(&mut program)
+        let ic10_program = regalloc::allocate_registers(&mut program, false)
             .unwrap_or_else(|diagnostics| panic!("regalloc errors: {diagnostics:#?}"));
-        let (text, diagnostics) = generate(&ic10_program);
+        let (text, diagnostics) = generate(&ic10_program, false);
         assert!(
             diagnostics
                 .iter()
@@ -809,7 +816,7 @@ mod tests {
                 is_entry: true,
             }],
         };
-        let (text, diagnostics) = generate(&program);
+        let (text, diagnostics) = generate(&program, false);
         assert_eq!(text.lines().count(), 129, "text should still be emitted");
         assert_eq!(
             diagnostics.len(),
@@ -832,7 +839,7 @@ mod tests {
                 is_entry: true,
             }],
         };
-        let (text, diagnostics) = generate(&program);
+        let (text, diagnostics) = generate(&program, false);
         assert!(
             diagnostics.is_empty(),
             "128 lines should produce no diagnostics"

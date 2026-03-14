@@ -23,7 +23,10 @@ pub use liveness::{
 };
 pub use phi::deconstruct_phis;
 
-pub fn allocate_registers(program: &mut Program) -> Result<IC10Program, Vec<Diagnostic>> {
+pub fn allocate_registers(
+    program: &mut Program,
+    keep_labels: bool,
+) -> Result<IC10Program, Vec<Diagnostic>> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     for function in &mut program.functions {
@@ -72,41 +75,61 @@ pub fn allocate_registers(program: &mut Program) -> Result<IC10Program, Vec<Diag
     // Order functions: main first, then others in declaration order.
     ic10_functions.sort_by_key(|f| if f.is_entry { 0 } else { 1 });
 
-    // Resolve labels to absolute line numbers within each function.
-    // First, compute the line offset for each function (they are concatenated).
+    // Collect the flat global instruction stream for label resolution.
     let mut global_instructions: Vec<IC10Instruction> = Vec::new();
     for function in &ic10_functions {
         global_instructions.extend(function.instructions.iter().cloned());
     }
-    let resolved = resolve_labels(global_instructions);
 
-    // Check the 128-line limit.
-    if resolved.len() > 128 {
+    let (resolved, non_label_count): (Vec<IC10Instruction>, usize) = if keep_labels {
+        // Keep symbolic labels and IC10Instruction::Label pseudo-instructions as-is.
+        let count = global_instructions
+            .iter()
+            .filter(|i| !matches!(i, IC10Instruction::Label(_)))
+            .count();
+        (global_instructions, count)
+    } else {
+        // Resolve labels to absolute line numbers and strip IC10Instruction::Label.
+        let resolved = resolve_labels(global_instructions);
+        let count = resolved.len();
+        (resolved, count)
+    };
+
+    // Check the 128-line limit (labels are not real instructions).
+    if non_label_count > 128 {
         diagnostics.push(Diagnostic {
             severity: crate::diagnostic::Severity::Warning,
             span: crate::diagnostic::Span { start: 0, end: 0 },
             message: format!(
                 "program exceeds 128-line IC10 limit ({} lines)",
-                resolved.len()
+                non_label_count
             ),
         });
     }
 
-    // Rebuild IC10Functions with resolved instructions.
+    // Rebuild IC10Functions from the global instruction slice, re-partitioning by function.
     let mut offset = 0;
     let mut resolved_functions = Vec::new();
     for function in &ic10_functions {
-        let original_count = function
-            .instructions
-            .iter()
-            .filter(|i| !matches!(i, IC10Instruction::Label(_)))
-            .count();
+        // When keep_labels is true the resolved slice retains all instructions including
+        // IC10Instruction::Label pseudo-instructions, so the raw length is correct.
+        // When keep_labels is false resolve_labels has stripped those pseudo-instructions,
+        // so only non-label instructions appear in the resolved slice.
+        let function_slice_count = if keep_labels {
+            function.instructions.len()
+        } else {
+            function
+                .instructions
+                .iter()
+                .filter(|i| !matches!(i, IC10Instruction::Label(_)))
+                .count()
+        };
         resolved_functions.push(IC10Function {
             name: function.name.clone(),
-            instructions: resolved[offset..offset + original_count].to_vec(),
+            instructions: resolved[offset..offset + function_slice_count].to_vec(),
             is_entry: function.is_entry,
         });
-        offset += original_count;
+        offset += function_slice_count;
     }
 
     if !diagnostics.is_empty() {
@@ -1367,7 +1390,7 @@ mod tests {
 
     fn compile_to_ic10(source: &str) -> IC10Program {
         let mut program = build_ssa(source);
-        allocate_registers(&mut program)
+        allocate_registers(&mut program, false)
             .unwrap_or_else(|diagnostics| panic!("register allocation failed: {:#?}", diagnostics))
     }
 
@@ -1375,7 +1398,7 @@ mod tests {
         source: &str,
     ) -> Result<IC10Program, Vec<crate::diagnostic::Diagnostic>> {
         let mut program = build_ssa(source);
-        allocate_registers(&mut program)
+        allocate_registers(&mut program, false)
     }
 
     fn all_instructions(program: &IC10Program) -> Vec<&IC10Instruction> {

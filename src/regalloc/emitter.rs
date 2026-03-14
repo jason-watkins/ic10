@@ -319,6 +319,11 @@ impl<'a> Emitter<'a> {
     fn lower_assign(&mut self, dest: TempId, operation: &Operation) {
         let dest_register = self.register_of(dest);
         match operation {
+            Operation::Parameter { .. } => {
+                // The caller already deposited the argument in the pre-coloured register;
+                // no instruction is needed.
+                let _ = dest_register;
+            }
             Operation::Constant(value) => {
                 self.emit(IC10Instruction::Move(
                     dest_register,

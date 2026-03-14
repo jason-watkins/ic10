@@ -73,7 +73,7 @@ fn instruction_uses(instruction: &Instruction) -> Vec<TempId> {
 fn operation_uses(operation: &Operation) -> Vec<TempId> {
     match operation {
         Operation::Copy(source) => vec![*source],
-        Operation::Constant(_) => vec![],
+        Operation::Constant(_) | Operation::Parameter { .. } => vec![],
         Operation::Binary { left, right, .. } => vec![*left, *right],
         Operation::Unary { operand, .. } => vec![*operand],
         Operation::Cast { operand, .. } => vec![*operand],
@@ -205,7 +205,7 @@ fn substitute_in_instruction(
 fn substitute_in_operation(operation: &mut Operation, substitutions: &HashMap<TempId, TempId>) {
     match operation {
         Operation::Copy(source) => substitute_temp(source, substitutions),
-        Operation::Constant(_) => {}
+        Operation::Constant(_) | Operation::Parameter { .. } => {}
         Operation::Binary { left, right, .. } => {
             substitute_temp(left, substitutions);
             substitute_temp(right, substitutions);
@@ -350,6 +350,7 @@ fn try_evaluate_constant(
     match instruction {
         Instruction::Assign { operation, .. } => match operation {
             Operation::Constant(value) => Some(*value),
+            Operation::Parameter { .. } => None,
             Operation::Copy(source) => constants.get(source).copied(),
             Operation::Binary {
                 operator,
@@ -767,6 +768,7 @@ fn operation_to_value_expression(operation: &Operation) -> Option<ValueExpressio
             if_false: *if_false,
         }),
         Operation::Copy(_) => None,
+        Operation::Parameter { .. } => None,
     }
 }
 

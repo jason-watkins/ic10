@@ -32,10 +32,10 @@ fn compile(source: &str) -> Result<String, String> {
     ssa::construct_program(&mut program);
     opt::optimize_program(&mut program);
 
-    let ic10_program = regalloc::allocate_registers(&mut program)
+    let ic10_program = regalloc::allocate_registers(&mut program, false)
         .map_err(|diagnostics| format!("regalloc errors: {diagnostics:#?}"))?;
 
-    let (text, codegen_diagnostics) = codegen::generate(&ic10_program);
+    let (text, codegen_diagnostics) = codegen::generate(&ic10_program, false);
     let codegen_errors: Vec<_> = codegen_diagnostics
         .iter()
         .filter(|d| d.severity == Severity::Error)

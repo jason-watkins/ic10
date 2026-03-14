@@ -137,6 +137,10 @@ pub enum Operation {
     Copy(TempId),
     /// A literal constant.
     Constant(f64),
+    /// A function parameter. The value is deposited in the correct register by the
+    /// caller before `jal`; the callee emits no instruction for this operation.
+    /// The `index` is the 0-based position in the parameter list.
+    Parameter { index: usize },
     /// Binary arithmetic/logic/comparison: `dest = lhs op rhs`
     Binary {
         operator: BinaryOperator,
@@ -766,13 +770,11 @@ fn lower_function(
     builder.switch_to(entry);
 
     let mut parameter_ids = Vec::new();
-    for parameter in &function.parameters {
+    for (index, parameter) in function.parameters.iter().enumerate() {
         let temp = builder.fresh_temp();
-        // Parameters are represented as initial temps; actual argument passing is
-        // handled by the register allocator.
         builder.emit(Instruction::Assign {
             dest: temp,
-            operation: Operation::Constant(0.0),
+            operation: Operation::Parameter { index },
         });
         builder.record_variable_definition(parameter.symbol_id, temp);
         parameter_ids.push(parameter.symbol_id);
