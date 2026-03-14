@@ -1,0 +1,5 @@
+device light: d0;
+
+fn main() {
+    light.On = 1.0;
+}
