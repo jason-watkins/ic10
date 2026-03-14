@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::cfg::{BasicBlock, BlockId, Function, Instruction, Operation, TempId, Terminator};
+use crate::cfg::{BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator};
 
 /// Eliminate all phi instructions in `function` by inserting explicit copy instructions
 /// at the end of predecessor blocks.
@@ -81,6 +81,7 @@ fn split_edge(function: &mut Function, predecessor: BlockId, successor: BlockId)
     let new_id = BlockId(function.blocks.len());
     function.blocks.push(BasicBlock {
         id: new_id,
+        role: BlockRole::Generic,
         instructions: Vec::new(),
         terminator: Terminator::Jump(successor),
         predecessors: vec![predecessor],

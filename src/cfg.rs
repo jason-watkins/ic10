@@ -53,10 +53,36 @@ impl Function {
     }
 }
 
+/// The structural role a basic block plays in the program's control flow.
+///
+/// Used to generate descriptive, underscore-free camelCase labels for IC10 output.
+#[derive(Debug, Clone)]
+pub enum BlockRole {
+    /// Function entry point — label is the function name itself.
+    Entry,
+    /// Loop header (while condition check, or for-loop check block).
+    LoopStart(usize),
+    /// Loop body.
+    LoopBody(usize),
+    /// For-loop increment step (continue target between body and header).
+    LoopContinue(usize),
+    /// Block after the loop exits.
+    LoopEnd(usize),
+    /// Then-branch of an if statement.
+    IfTrue(usize),
+    /// Else-branch of an if statement.
+    IfFalse(usize),
+    /// Merge point after both branches of an if statement.
+    IfEnd(usize),
+    /// Generic block with no special structural role.
+    Generic,
+}
+
 /// A basic block: a linear sequence of instructions ending with a terminator.
 #[derive(Debug)]
 pub struct BasicBlock {
     pub id: BlockId,
+    pub role: BlockRole,
     pub instructions: Vec<Instruction>,
     pub terminator: Terminator,
     pub predecessors: Vec<BlockId>,
@@ -202,6 +228,10 @@ struct Builder {
     /// The next statement lowered while this is `Some` triggers a warning, then further
     /// statements in the same unreachable region are silently skipped.
     unreachable_after: Option<Span>,
+    /// Counter for assigning unique 1-based indices to if statements.
+    next_if_index: usize,
+    /// Counter for assigning unique 1-based indices to loops.
+    next_loop_index: usize,
 }
 
 impl Builder {
@@ -215,6 +245,8 @@ impl Builder {
             variable_definitions: HashMap::new(),
             diagnostics: Vec::new(),
             unreachable_after: None,
+            next_if_index: 0,
+            next_loop_index: 0,
         }
     }
 
@@ -228,6 +260,7 @@ impl Builder {
         let id = BlockId(self.blocks.len());
         self.blocks.push(BasicBlock {
             id,
+            role: BlockRole::Generic,
             instructions: Vec::new(),
             terminator: Terminator::None,
             predecessors: Vec::new(),
@@ -589,8 +622,13 @@ impl Builder {
     fn lower_if(&mut self, if_statement: &resolved::IfStatement) {
         let condition_temp = self.lower_expression(&if_statement.condition);
 
+        self.next_if_index += 1;
+        let if_index = self.next_if_index;
+
         let then_block = self.new_block();
+        self.blocks[then_block.0].role = BlockRole::IfTrue(if_index);
         let merge_block = self.new_block();
+        self.blocks[merge_block.0].role = BlockRole::IfEnd(if_index);
 
         match &if_statement.else_clause {
             None => {
@@ -598,6 +636,7 @@ impl Builder {
             }
             Some(ElseClause::Block(else_block)) => {
                 let else_block_id = self.new_block();
+                self.blocks[else_block_id.0].role = BlockRole::IfFalse(if_index);
                 self.terminate_and_branch(condition_temp, then_block, else_block_id);
                 self.switch_to(else_block_id);
                 self.lower_block(else_block);
@@ -607,6 +646,7 @@ impl Builder {
             }
             Some(ElseClause::If(nested_if)) => {
                 let else_block_id = self.new_block();
+                self.blocks[else_block_id.0].role = BlockRole::IfFalse(if_index);
                 self.terminate_and_branch(condition_temp, then_block, else_block_id);
                 self.switch_to(else_block_id);
                 self.lower_if(nested_if);
@@ -635,9 +675,15 @@ impl Builder {
             ExpressionKind::Literal(v) if v == 1.0
         );
 
+        self.next_loop_index += 1;
+        let loop_index = self.next_loop_index;
+
         let header_block = self.new_block();
+        self.blocks[header_block.0].role = BlockRole::LoopStart(loop_index);
         let body_block = self.new_block();
+        self.blocks[body_block.0].role = BlockRole::LoopBody(loop_index);
         let exit_block = self.new_block();
+        self.blocks[exit_block.0].role = BlockRole::LoopEnd(loop_index);
 
         self.terminate_and_jump(header_block);
         self.switch_to(header_block);
@@ -690,10 +736,17 @@ impl Builder {
         });
         self.record_variable_definition(for_statement.variable, loop_var);
 
+        self.next_loop_index += 1;
+        let loop_index = self.next_loop_index;
+
         let check_block = self.new_block();
+        self.blocks[check_block.0].role = BlockRole::LoopStart(loop_index);
         let body_block = self.new_block();
+        self.blocks[body_block.0].role = BlockRole::LoopBody(loop_index);
         let continue_block = self.new_block();
+        self.blocks[continue_block.0].role = BlockRole::LoopContinue(loop_index);
         let exit_block = self.new_block();
+        self.blocks[exit_block.0].role = BlockRole::LoopEnd(loop_index);
 
         self.terminate_and_jump(check_block);
 
@@ -767,6 +820,7 @@ fn lower_function(
 ) -> Function {
     let mut builder = Builder::new();
     let entry = builder.new_block();
+    builder.blocks[entry.0].role = BlockRole::Entry;
     builder.switch_to(entry);
 
     let mut parameter_ids = Vec::new();
@@ -1028,7 +1082,10 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[1],
-            Instruction::Assign { dest: TempId(1), operation: Operation::Copy(TempId(0)) }
+            Instruction::Assign {
+                dest: TempId(1),
+                operation: Operation::Copy(TempId(0))
+            }
         ));
     }
 
@@ -1113,7 +1170,10 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[1],
-            Instruction::Assign { dest: TempId(1), operation: Operation::Copy(TempId(0)) }
+            Instruction::Assign {
+                dest: TempId(1),
+                operation: Operation::Copy(TempId(0))
+            }
         ));
         assert!(matches!(
             &instructions[2],
@@ -1144,7 +1204,12 @@ mod tests {
             &instructions[0],
             Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 2.5
         ));
-        assert!(matches!(&instructions[1], Instruction::Sleep { duration: TempId(0) }));
+        assert!(matches!(
+            &instructions[1],
+            Instruction::Sleep {
+                duration: TempId(0)
+            }
+        ));
     }
 
     #[test]
@@ -1178,7 +1243,10 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[4],
-            Instruction::Assign { dest: TempId(4), operation: Operation::Copy(TempId(3)) }
+            Instruction::Assign {
+                dest: TempId(4),
+                operation: Operation::Copy(TempId(3))
+            }
         ));
     }
 
@@ -1261,7 +1329,10 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[2],
-            Instruction::Assign { dest: TempId(2), operation: Operation::Copy(TempId(1)) }
+            Instruction::Assign {
+                dest: TempId(2),
+                operation: Operation::Copy(TempId(1))
+            }
         ));
     }
 
@@ -1283,12 +1354,19 @@ mod tests {
             &instructions[2],
             Instruction::Assign {
                 dest: TempId(2),
-                operation: Operation::Binary { operator: BinaryOperator::Add, left: TempId(0), right: TempId(1) },
+                operation: Operation::Binary {
+                    operator: BinaryOperator::Add,
+                    left: TempId(0),
+                    right: TempId(1)
+                },
             }
         ));
         assert!(matches!(
             &instructions[3],
-            Instruction::Assign { dest: TempId(3), operation: Operation::Copy(TempId(2)) }
+            Instruction::Assign {
+                dest: TempId(3),
+                operation: Operation::Copy(TempId(2))
+            }
         ));
     }
 
@@ -1306,12 +1384,19 @@ mod tests {
             &instructions[1],
             Instruction::Assign {
                 dest: TempId(1),
-                operation: Operation::Cast { operand: TempId(0), target_type: Type::F64, source_type: Type::I53 },
+                operation: Operation::Cast {
+                    operand: TempId(0),
+                    target_type: Type::F64,
+                    source_type: Type::I53
+                },
             }
         ));
         assert!(matches!(
             &instructions[2],
-            Instruction::Assign { dest: TempId(2), operation: Operation::Copy(TempId(1)) }
+            Instruction::Assign {
+                dest: TempId(2),
+                operation: Operation::Copy(TempId(1))
+            }
         ));
     }
 
@@ -1391,7 +1476,10 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[2],
-            Instruction::Assign { dest: TempId(2), operation: Operation::Copy(TempId(1)) }
+            Instruction::Assign {
+                dest: TempId(2),
+                operation: Operation::Copy(TempId(1))
+            }
         ));
         assert!(matches!(
             &instructions[3],
@@ -1419,7 +1507,10 @@ mod tests {
         assert_eq!(instructions.len(), 3);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(_) }
+            Instruction::Assign {
+                dest: TempId(0),
+                operation: Operation::Constant(_)
+            }
         ));
         assert!(matches!(
             &instructions[1],
@@ -1428,7 +1519,10 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[2],
-            Instruction::Assign { dest: TempId(2), operation: Operation::Copy(TempId(1)) }
+            Instruction::Assign {
+                dest: TempId(2),
+                operation: Operation::Copy(TempId(1))
+            }
         ));
     }
 
@@ -1460,12 +1554,18 @@ mod tests {
             &instructions[1],
             Instruction::Assign {
                 dest: TempId(1),
-                operation: Operation::Unary { operator: UnaryOperator::Neg, operand: TempId(0) },
+                operation: Operation::Unary {
+                    operator: UnaryOperator::Neg,
+                    operand: TempId(0)
+                },
             }
         ));
         assert!(matches!(
             &instructions[2],
-            Instruction::Assign { dest: TempId(2), operation: Operation::Copy(TempId(1)) }
+            Instruction::Assign {
+                dest: TempId(2),
+                operation: Operation::Copy(TempId(1))
+            }
         ));
     }
 
@@ -1481,7 +1581,10 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[1],
-            Instruction::Assign { dest: TempId(1), operation: Operation::Copy(TempId(0)) }
+            Instruction::Assign {
+                dest: TempId(1),
+                operation: Operation::Copy(TempId(0))
+            }
         ));
         assert!(matches!(
             &instructions[2],
@@ -1489,7 +1592,10 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[3],
-            Instruction::Assign { dest: TempId(3), operation: Operation::Copy(TempId(2)) }
+            Instruction::Assign {
+                dest: TempId(3),
+                operation: Operation::Copy(TempId(2))
+            }
         ));
     }
 

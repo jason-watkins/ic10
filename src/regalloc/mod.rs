@@ -1125,13 +1125,16 @@ mod tests {
 
         for position in 0..linear_map.total {
             let pos = LinearPosition(position);
+            // Exclude temps whose range starts exactly at `pos`: those are destinations being
+            // defined at this instruction and can legally share a register with a source whose
+            // range ends at `pos` (read-before-write within the same IC10 instruction).
             let live_at_position: Vec<(cfg::TempId, Register)> = result
                 .assignments
                 .iter()
                 .filter(|(temp, _)| {
                     live_ranges
                         .get(temp)
-                        .is_some_and(|range| range.contains(pos))
+                        .is_some_and(|range| range.start() < pos && range.end() >= pos)
                 })
                 .map(|(&temp, &register)| (temp, register))
                 .collect();

@@ -326,7 +326,7 @@ fn expire_old_ranges(
 ) {
     let mut index = 0;
     while index < active.len() {
-        if active[index].range_end < position {
+        if active[index].range_end <= position {
             let entry = active.remove(index);
             pool.free(entry.register);
         } else {

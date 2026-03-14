@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{BinaryOperator, BuiltinFunction, Type, UnaryOperator};
-use crate::cfg::{BasicBlock, BlockId, Function, Instruction, Operation, TempId, Terminator};
+use crate::cfg::{
+    BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator,
+};
 use crate::resolved::SymbolTable;
 
 use super::allocator::{AllocationResult, SpillRecord};
@@ -71,6 +73,27 @@ fn build_constant_values(function: &Function) -> HashMap<TempId, f64> {
     constants
 }
 
+/// Convert a snake_case identifier to camelCase so that generated IC10 labels
+/// contain no underscores (which the in-game editor rejects).
+///
+/// Each word after the first has its initial letter uppercased; leading/trailing/
+/// consecutive underscores are collapsed and dropped.
+fn snake_case_to_camel_case(name: &str) -> String {
+    let mut result = String::with_capacity(name.len());
+    let mut capitalise_next = false;
+    for character in name.chars() {
+        if character == '_' {
+            capitalise_next = true;
+        } else if capitalise_next {
+            result.extend(character.to_uppercase());
+            capitalise_next = false;
+        } else {
+            result.push(character);
+        }
+    }
+    result
+}
+
 impl<'a> Emitter<'a> {
     fn new(
         function: &'a Function,
@@ -127,10 +150,17 @@ impl<'a> Emitter<'a> {
     }
 
     fn block_label(&self, block_id: BlockId) -> String {
-        if block_id == self.function.entry {
-            self.function.name.clone()
-        } else {
-            format!("{}_{}", self.function.name, block_id.0)
+        let prefix = snake_case_to_camel_case(&self.function.name);
+        match self.function.blocks[block_id.0].role {
+            BlockRole::Entry => prefix,
+            BlockRole::LoopStart(n) => format!("{}Loop{}Start", prefix, n),
+            BlockRole::LoopBody(n) => format!("{}Loop{}Body", prefix, n),
+            BlockRole::LoopContinue(n) => format!("{}Loop{}Continue", prefix, n),
+            BlockRole::LoopEnd(n) => format!("{}Loop{}End", prefix, n),
+            BlockRole::IfTrue(n) => format!("{}If{}True", prefix, n),
+            BlockRole::IfFalse(n) => format!("{}If{}False", prefix, n),
+            BlockRole::IfEnd(n) => format!("{}If{}End", prefix, n),
+            BlockRole::Generic => format!("{}Block{}", prefix, block_id.0),
         }
     }
 

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::cfg::{
-    BasicBlock, BlockId, Function, Instruction, Operation, Program, TempId, Terminator,
+    BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, Program, TempId, Terminator,
 };
 use crate::resolved::SymbolId;
 
@@ -368,6 +368,7 @@ fn inline_call_into_function(
 
         inlined_blocks.push(BasicBlock {
             id: remap_block(callee_block.id),
+            role: callee_block.role.clone(),
             instructions,
             terminator,
             predecessors: callee_block
@@ -473,6 +474,7 @@ fn inline_call_into_function(
 
     let merge_block = BasicBlock {
         id: merge_block_id,
+        role: BlockRole::Generic,
         instructions: merge_post_instructions,
         terminator: final_terminator,
         predecessors: merge_predecessors,
@@ -514,6 +516,7 @@ fn clone_function(function: &Function) -> Function {
             .iter()
             .map(|block| BasicBlock {
                 id: block.id,
+                role: block.role.clone(),
                 instructions: block.instructions.clone(),
                 terminator: block.terminator.clone(),
                 predecessors: block.predecessors.clone(),
