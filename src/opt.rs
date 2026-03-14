@@ -23,6 +23,7 @@ fn optimize(function: &mut Function) {
         changed |= global_value_numbering(function);
         changed |= dead_code_elimination(function);
         changed |= remove_unreachable_blocks(function);
+        changed |= merge_empty_blocks(function);
         if !changed {
             break;
         }
@@ -855,6 +856,106 @@ fn compute_reachable(function: &Function) -> HashSet<BlockId> {
     }
 
     reachable
+}
+
+/// Eliminate empty pass-through blocks: blocks with no instructions and a single
+/// unconditional `Jump` to some other block.
+///
+/// For each such block B → C, every predecessor of B is redirected to jump
+/// directly to C, phi arguments in C that came from B are re-attributed to
+/// B's predecessors, and B is cleared.  `function.entry` is updated when B
+/// was the entry block.  Runs to fixpoint because eliminating one block may
+/// expose the next pass-through in the chain.
+fn merge_empty_blocks(function: &mut Function) -> bool {
+    let mut changed = false;
+    loop {
+        let Some(block_id) = find_empty_pass_through_block(function) else {
+            break;
+        };
+        let Terminator::Jump(target_id) = function.blocks[block_id.0].terminator else {
+            unreachable!()
+        };
+
+        let predecessors: Vec<BlockId> = function.blocks[block_id.0].predecessors.clone();
+
+        if function.entry == block_id {
+            function.entry = target_id;
+        }
+
+        for &predecessor_id in &predecessors {
+            let predecessor = &mut function.blocks[predecessor_id.0];
+            replace_jump_target(&mut predecessor.terminator, block_id, target_id);
+            for successor in predecessor.successors.iter_mut() {
+                if *successor == block_id {
+                    *successor = target_id;
+                }
+            }
+            predecessor.successors.sort_unstable();
+            predecessor.successors.dedup();
+        }
+
+        {
+            let target = &mut function.blocks[target_id.0];
+            target
+                .predecessors
+                .retain(|&predecessor| predecessor != block_id);
+            for &predecessor_id in &predecessors {
+                if !target.predecessors.contains(&predecessor_id) {
+                    target.predecessors.push(predecessor_id);
+                }
+            }
+            for instruction in &mut target.instructions {
+                if let Instruction::Phi { args, .. } = instruction
+                    && let Some(position) = args.iter().position(|&(_, block)| block == block_id)
+                {
+                    let (value, _) = args.remove(position);
+                    for &predecessor_id in &predecessors {
+                        if !args.iter().any(|&(_, block)| block == predecessor_id) {
+                            args.push((value, predecessor_id));
+                        }
+                    }
+                }
+            }
+        }
+
+        let block = &mut function.blocks[block_id.0];
+        block.predecessors.clear();
+        block.successors.clear();
+        block.terminator = Terminator::None;
+        changed = true;
+    }
+    changed
+}
+
+fn find_empty_pass_through_block(function: &Function) -> Option<BlockId> {
+    for block in &function.blocks {
+        let Terminator::Jump(target) = block.terminator else {
+            continue;
+        };
+        if target != block.id && block.instructions.is_empty() {
+            return Some(block.id);
+        }
+    }
+    None
+}
+
+fn replace_jump_target(terminator: &mut Terminator, old: BlockId, new: BlockId) {
+    match terminator {
+        Terminator::Jump(target) if *target == old => *target = new,
+        Terminator::Branch {
+            true_block,
+            false_block,
+            ..
+        } => {
+            if *true_block == old {
+                *true_block = new;
+            }
+            if *false_block == old {
+                *false_block = new;
+            }
+        }
+        Terminator::Return(_) | Terminator::None | Terminator::Jump(_) => {}
+    }
 }
 
 #[cfg(test)]
