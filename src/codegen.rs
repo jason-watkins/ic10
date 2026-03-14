@@ -462,10 +462,8 @@ mod tests {
             "#,
         );
         assert!(
-            lines
-                .iter()
-                .any(|line| line.contains("move") && line.contains("42")),
-            "expected a move with 42: {lines:?}"
+            lines.iter().any(|line| *line == "s d0 Setting 42"),
+            "expected constant to be inlined directly into store: {lines:?}"
         );
     }
 
@@ -516,8 +514,18 @@ mod tests {
     fn function_call_emits_jal() {
         let lines = compile_lines(
             r#"
-            fn add(a: i53, b: i53) -> i53 { return a + b; }
-            fn main() { let _x: i53 = add(10, 20); }
+            device io: d0;
+            fn compute(a: f64, b: f64) -> f64 {
+                let c = a + b;
+                let d = c * a;
+                let e = d - b;
+                let f = e + c;
+                return f * d;
+            }
+            fn main() {
+                io.Setting = compute(1.0, 2.0);
+                io.Setting = compute(3.0, 4.0);
+            }
             "#,
         );
         assert!(
@@ -530,9 +538,23 @@ mod tests {
     fn non_leaf_function_saves_ra() {
         let lines = compile_lines(
             r#"
-            fn leaf() -> i53 { return 1; }
-            fn middle() -> i53 { return leaf(); }
-            fn main() { let _x: i53 = middle(); }
+            device io: d0;
+            fn leaf(a: f64, b: f64) -> f64 {
+                let c = a + b;
+                let d = c * a;
+                let e = d - b;
+                let f = e + c;
+                return f * d;
+            }
+            fn middle(x: f64) -> f64 {
+                let a = leaf(x, x);
+                let b = leaf(a, x);
+                return a + b;
+            }
+            fn main() {
+                io.Setting = middle(1.0);
+                io.Setting = middle(2.0);
+            }
             "#,
         );
         assert!(
@@ -549,8 +571,18 @@ mod tests {
     fn return_via_j_ra() {
         let lines = compile_lines(
             r#"
-            fn helper() -> i53 { return 5; }
-            fn main() { let _x: i53 = helper(); }
+            device io: d0;
+            fn helper(a: f64, b: f64) -> f64 {
+                let c = a + b;
+                let d = c * a;
+                let e = d - b;
+                let f = e + c;
+                return f * d;
+            }
+            fn main() {
+                io.Setting = helper(1.0, 2.0);
+                io.Setting = helper(3.0, 4.0);
+            }
             "#,
         );
         assert!(

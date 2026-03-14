@@ -123,7 +123,10 @@ fn function_call() {
         "#,
     )
     .unwrap();
-    assert!(output.contains("jal"), "expected function call: {output}");
+    assert!(
+        output.contains("42"),
+        "expected inlined+folded constant 42: {output}"
+    );
     assert!(
         output.contains("s d0 Setting"),
         "expected device write: {output}"

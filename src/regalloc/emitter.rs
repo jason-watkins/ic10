@@ -7,7 +7,7 @@ use crate::resolved::SymbolTable;
 use super::allocator::{AllocationResult, SpillRecord};
 use super::calling_convention::{CallingConventionInfo, FunctionClass};
 use super::ic10::{IC10Function, IC10Instruction, JumpTarget, Operand, Register};
-use super::liveness::{LinearMap, LinearPosition, instruction_uses, terminator_uses};
+use super::liveness::{LinearMap, LinearPosition};
 
 /// Metadata about a call site emitted into the IC10 instruction stream.
 ///
@@ -43,22 +43,19 @@ struct Emitter<'a> {
     reloads_at: HashMap<LinearPosition, Vec<&'a SpillRecord>>,
     /// Call site metadata collected during emission, consumed by the caller-save post-pass.
     call_sites: Vec<EmittedCallSite>,
-    /// Constant temps whose only uses are as `Instruction::Call` arguments.
-    ///
-    /// For these, `lower_assign` is suppressed and `lower_call` emits the literal value
-    /// directly into the target register, avoiding an intermediate `move rN imm` / `move
-    /// r0 rN` pair.
-    constants_for_call_args: HashMap<TempId, f64>,
+    /// The value of every constant temp. `operand_of` returns `Operand::Literal` for
+    /// these so that constants are inlined directly into arithmetic, comparison, branch,
+    /// and call instructions, and `lower_assign` suppresses the `move rN imm` that would
+    /// otherwise materialise them into a register.
+    constant_values: HashMap<TempId, f64>,
 }
 
-/// Build the set of constant temps that should be inlined directly as literals at call
-/// sites rather than being materialised into a register first.
+/// Collect the value of every constant temp in the function.
 ///
-/// A constant temp qualifies when every one of its uses is as an argument to a
-/// `Instruction::Call`.  For such temps `lower_assign` is suppressed and `lower_call`
-/// emits `move r<n> <literal>` directly, collapsing the otherwise two-instruction
-/// `move rN imm` / `move r0 rN` sequence into a single `move r0 imm`.
-fn build_constants_for_call_args(function: &Function) -> HashMap<TempId, f64> {
+/// Used by `operand_of` to return `Operand::Literal` at every use site so that
+/// constants are inlined directly into instructions rather than materialised into a
+/// register first.
+fn build_constant_values(function: &Function) -> HashMap<TempId, f64> {
     let mut constants: HashMap<TempId, f64> = HashMap::new();
     for block in &function.blocks {
         for instruction in &block.instructions {
@@ -71,32 +68,7 @@ fn build_constants_for_call_args(function: &Function) -> HashMap<TempId, f64> {
             }
         }
     }
-
-    let mut has_non_call_use: HashSet<TempId> = HashSet::new();
-    for block in &function.blocks {
-        for instruction in &block.instructions {
-            match instruction {
-                Instruction::Call { .. } => {}
-                _ => {
-                    for temp in instruction_uses(instruction) {
-                        if constants.contains_key(&temp) {
-                            has_non_call_use.insert(temp);
-                        }
-                    }
-                }
-            }
-        }
-        for temp in terminator_uses(&block.terminator) {
-            if constants.contains_key(&temp) {
-                has_non_call_use.insert(temp);
-            }
-        }
-    }
-
     constants
-        .into_iter()
-        .filter(|(temp, _)| !has_non_call_use.contains(temp))
-        .collect()
 }
 
 impl<'a> Emitter<'a> {
@@ -132,7 +104,7 @@ impl<'a> Emitter<'a> {
             spills_at,
             reloads_at,
             call_sites: Vec::new(),
-            constants_for_call_args: build_constants_for_call_args(function),
+            constant_values: build_constant_values(function),
         }
     }
 
@@ -144,6 +116,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn operand_of(&self, temp: TempId) -> Operand {
+        if let Some(&value) = self.constant_values.get(&temp) {
+            return Operand::Literal(value);
+        }
         Operand::Register(self.register_of(temp))
     }
 
@@ -379,24 +354,14 @@ impl<'a> Emitter<'a> {
                 // no instruction is needed.
                 let _ = dest_register;
             }
-            Operation::Constant(value) => {
-                if self.constants_for_call_args.contains_key(&dest) {
-                    // This constant will be emitted as a literal directly at the call
-                    // site; no register materialisation is needed here.
-                    return;
-                }
-                self.emit(IC10Instruction::Move(
-                    dest_register,
-                    Operand::Literal(*value),
-                ));
+            Operation::Constant(_) => {
+                // Inlined as a literal at every use site via `operand_of`; no register
+                // materialisation is needed.
             }
             Operation::Copy(source) => {
-                let source_register = self.register_of(*source);
-                if source_register != dest_register {
-                    self.emit(IC10Instruction::Move(
-                        dest_register,
-                        Operand::Register(source_register),
-                    ));
+                let source_operand = self.operand_of(*source);
+                if source_operand != Operand::Register(dest_register) {
+                    self.emit(IC10Instruction::Move(dest_register, source_operand));
                 }
             }
             Operation::Binary {
@@ -490,20 +455,14 @@ impl<'a> Emitter<'a> {
     }
 
     fn lower_cast(&mut self, dest: Register, operand: TempId, target_type: &Type) {
-        let source_register = self.register_of(operand);
+        let source_operand = self.operand_of(operand);
         match target_type {
             Type::I53 => {
-                self.emit(IC10Instruction::Trunc(
-                    dest,
-                    Operand::Register(source_register),
-                ));
+                self.emit(IC10Instruction::Trunc(dest, source_operand));
             }
             _ => {
-                if source_register != dest {
-                    self.emit(IC10Instruction::Move(
-                        dest,
-                        Operand::Register(source_register),
-                    ));
+                if source_operand != Operand::Register(dest) {
+                    self.emit(IC10Instruction::Move(dest, source_operand));
                 }
             }
         }
@@ -603,19 +562,9 @@ impl<'a> Emitter<'a> {
 
         for (index, &arg) in args.iter().enumerate() {
             let target_register = register_for_index(index);
-            if let Some(&value) = self.constants_for_call_args.get(&arg) {
-                self.emit(IC10Instruction::Move(
-                    target_register,
-                    Operand::Literal(value),
-                ));
-            } else {
-                let source_register = self.register_of(arg);
-                if source_register != target_register {
-                    self.emit(IC10Instruction::Move(
-                        target_register,
-                        Operand::Register(source_register),
-                    ));
-                }
+            let source_operand = self.operand_of(arg);
+            if source_operand != Operand::Register(target_register) {
+                self.emit(IC10Instruction::Move(target_register, source_operand));
             }
         }
 
@@ -672,12 +621,9 @@ impl<'a> Emitter<'a> {
                     self.emit(IC10Instruction::HaltAndCatchFire);
                 } else {
                     if let Some(temp) = value {
-                        let source_register = self.register_of(*temp);
-                        if source_register != Register::R0 {
-                            self.emit(IC10Instruction::Move(
-                                Register::R0,
-                                Operand::Register(source_register),
-                            ));
+                        let source_operand = self.operand_of(*temp);
+                        if source_operand != Operand::Register(Register::R0) {
+                            self.emit(IC10Instruction::Move(Register::R0, source_operand));
                         }
                     }
                     if is_non_leaf {
