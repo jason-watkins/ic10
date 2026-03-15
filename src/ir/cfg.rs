@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::resolved::{SymbolId, SymbolTable};
-use super::shared::{BatchMode, BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
+use super::shared::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
 /// An opaque identifier for a temporary (three-address) value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -146,10 +146,10 @@ pub enum Instruction {
         function: SymbolId,
         args: Vec<TempId>,
     },
-    /// `dest = builtin(args)`
-    BuiltinCall {
+    /// `dest = intrinsic(args)`
+    IntrinsicCall {
         dest: TempId,
-        function: BuiltinFunction,
+        function: Intrinsic,
         args: Vec<TempId>,
     },
     /// `sleep(duration)`

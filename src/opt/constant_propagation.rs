@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::ir::cfg::{BlockId, Function, Instruction, Operation, TempId, Terminator};
-use crate::ir::{BinaryOperator, BuiltinFunction, Type, UnaryOperator};
+use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
 use super::utilities::instruction_dest;
 
@@ -181,11 +181,11 @@ fn try_evaluate_constant(
             }
             Some(*first_value)
         }
-        Instruction::BuiltinCall { function, args, .. } => {
+        Instruction::IntrinsicCall { function, args, .. } => {
             let constant_args: Option<Vec<f64>> =
                 args.iter().map(|a| constants.get(a).copied()).collect();
             let constant_args = constant_args?;
-            try_fold_builtin(*function, &constant_args)
+            try_fold_intrinsic(*function, &constant_args)
         }
         _ => None,
     }
@@ -310,29 +310,29 @@ fn fold_cast(value: f64, source: Type, target: Type) -> f64 {
     }
 }
 
-fn try_fold_builtin(builtin: BuiltinFunction, args: &[f64]) -> Option<f64> {
-    match builtin {
-        BuiltinFunction::Rand => None,
-        BuiltinFunction::Abs if args.len() == 1 => Some(args[0].abs()),
-        BuiltinFunction::Ceil if args.len() == 1 => Some(args[0].ceil()),
-        BuiltinFunction::Floor if args.len() == 1 => Some(args[0].floor()),
-        BuiltinFunction::Round if args.len() == 1 => Some(args[0].round()),
-        BuiltinFunction::Trunc if args.len() == 1 => Some(args[0].trunc()),
-        BuiltinFunction::Sqrt if args.len() == 1 => Some(args[0].sqrt()),
-        BuiltinFunction::Exp if args.len() == 1 => Some(args[0].exp()),
-        BuiltinFunction::Log if args.len() == 1 => Some(args[0].ln()),
-        BuiltinFunction::Sin if args.len() == 1 => Some(args[0].sin()),
-        BuiltinFunction::Cos if args.len() == 1 => Some(args[0].cos()),
-        BuiltinFunction::Tan if args.len() == 1 => Some(args[0].tan()),
-        BuiltinFunction::Asin if args.len() == 1 => Some(args[0].asin()),
-        BuiltinFunction::Acos if args.len() == 1 => Some(args[0].acos()),
-        BuiltinFunction::Atan if args.len() == 1 => Some(args[0].atan()),
-        BuiltinFunction::Atan2 if args.len() == 2 => Some(args[0].atan2(args[1])),
-        BuiltinFunction::Pow if args.len() == 2 => Some(args[0].powf(args[1])),
-        BuiltinFunction::Min if args.len() == 2 => Some(args[0].min(args[1])),
-        BuiltinFunction::Max if args.len() == 2 => Some(args[0].max(args[1])),
-        BuiltinFunction::Lerp if args.len() == 3 => Some(args[0] + (args[1] - args[0]) * args[2]),
-        BuiltinFunction::Clamp if args.len() == 3 => Some(args[0].max(args[1]).min(args[2])),
+fn try_fold_intrinsic(intrinsic: Intrinsic, args: &[f64]) -> Option<f64> {
+    match intrinsic {
+        Intrinsic::Rand => None,
+        Intrinsic::Abs if args.len() == 1 => Some(args[0].abs()),
+        Intrinsic::Ceil if args.len() == 1 => Some(args[0].ceil()),
+        Intrinsic::Floor if args.len() == 1 => Some(args[0].floor()),
+        Intrinsic::Round if args.len() == 1 => Some(args[0].round()),
+        Intrinsic::Trunc if args.len() == 1 => Some(args[0].trunc()),
+        Intrinsic::Sqrt if args.len() == 1 => Some(args[0].sqrt()),
+        Intrinsic::Exp if args.len() == 1 => Some(args[0].exp()),
+        Intrinsic::Log if args.len() == 1 => Some(args[0].ln()),
+        Intrinsic::Sin if args.len() == 1 => Some(args[0].sin()),
+        Intrinsic::Cos if args.len() == 1 => Some(args[0].cos()),
+        Intrinsic::Tan if args.len() == 1 => Some(args[0].tan()),
+        Intrinsic::Asin if args.len() == 1 => Some(args[0].asin()),
+        Intrinsic::Acos if args.len() == 1 => Some(args[0].acos()),
+        Intrinsic::Atan if args.len() == 1 => Some(args[0].atan()),
+        Intrinsic::Atan2 if args.len() == 2 => Some(args[0].atan2(args[1])),
+        Intrinsic::Pow if args.len() == 2 => Some(args[0].powf(args[1])),
+        Intrinsic::Min if args.len() == 2 => Some(args[0].min(args[1])),
+        Intrinsic::Max if args.len() == 2 => Some(args[0].max(args[1])),
+        Intrinsic::Lerp if args.len() == 3 => Some(args[0] + (args[1] - args[0]) * args[2]),
+        Intrinsic::Clamp if args.len() == 3 => Some(args[0].max(args[1]).min(args[2])),
         _ => None,
     }
 }

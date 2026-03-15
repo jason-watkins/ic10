@@ -14,7 +14,7 @@ use crate::ir::resolved::{
     Program, ReturnStatement, SleepStatement, Statement, SymbolId, SymbolInfo, SymbolKind,
     SymbolTable, WhileStatement,
 };
-use crate::ir::{BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
+use crate::ir::{BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
 /// An entry in the scope stack.
 #[derive(Clone)]
@@ -760,15 +760,15 @@ impl Resolver {
                 }
             }
 
-            AstExpressionKind::BuiltinCall(builtin, args) => {
+            AstExpressionKind::IntrinsicCall(intrinsic, args) => {
                 let resolved_args: Vec<Expression> =
                     args.iter().map(|a| self.resolve_expression(a)).collect();
-                let expected = builtin_param_count(*builtin);
+                let expected = intrinsic_param_count(*intrinsic);
                 if resolved_args.len() != expected {
                     self.error(
                         expr.span,
                         format!(
-                            "built-in `{builtin:?}` expects {expected} argument(s), found {}",
+                            "intrinsic `{intrinsic:?}` expects {expected} argument(s), found {}",
                             resolved_args.len()
                         ),
                     );
@@ -778,7 +778,7 @@ impl Resolver {
                             self.error(
                                 arg.span,
                                 format!(
-                                    "built-in math functions require `f64` arguments, found `{:?}`",
+                                    "intrinsic functions require `f64` arguments, found `{:?}`",
                                     arg.ty
                                 ),
                             );
@@ -786,7 +786,7 @@ impl Resolver {
                     }
                 }
                 Expression {
-                    kind: ExpressionKind::BuiltinCall(*builtin, resolved_args),
+                    kind: ExpressionKind::IntrinsicCall(*intrinsic, resolved_args),
                     ty: Type::F64,
                     span: expr.span,
                 }
@@ -1154,9 +1154,9 @@ fn eval_binary_const(
     })
 }
 
-fn builtin_param_count(builtin: BuiltinFunction) -> usize {
-    use BuiltinFunction::*;
-    match builtin {
+fn intrinsic_param_count(intrinsic: Intrinsic) -> usize {
+    use Intrinsic::*;
+    match intrinsic {
         Abs | Ceil | Floor | Round | Trunc | Sqrt | Exp | Log | Sin | Cos | Tan | Asin | Acos
         | Atan | Rand => 1,
         Atan2 | Pow | Min | Max => 2,

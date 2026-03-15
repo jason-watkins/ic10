@@ -1,6 +1,6 @@
 use crate::diagnostic::Span;
 
-use super::shared::{BatchMode, BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
+use super::shared::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
 /// A complete IC20 program: an ordered list of top-level items (§1.2).
 #[derive(Debug, Clone)]
@@ -204,8 +204,8 @@ pub enum ExpressionKind {
     Cast(Box<Expression>, Type),
     /// User-defined function call: `f(args)` (§5.9).
     Call(CallExpression),
-    /// Built-in math function call (§5.11).
-    BuiltinCall(BuiltinFunction, Vec<Expression>),
+    /// Intrinsic function call (§5.11).
+    IntrinsicCall(Intrinsic, Vec<Expression>),
     /// Device logic-field read: `device.Field` (§5.10, §8.2).
     DeviceRead { device: String, field: String },
     /// Device slot-field read: `device.slot(idx).Field` (§5.10, §8.4).

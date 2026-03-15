@@ -9,7 +9,7 @@ pub(super) fn instruction_dest(instruction: &Instruction) -> Option<TempId> {
         | Instruction::LoadDevice { dest, .. }
         | Instruction::LoadSlot { dest, .. }
         | Instruction::BatchRead { dest, .. }
-        | Instruction::BuiltinCall { dest, .. } => Some(*dest),
+        | Instruction::IntrinsicCall { dest, .. } => Some(*dest),
         Instruction::Call { dest, .. } => *dest,
         Instruction::StoreDevice { .. }
         | Instruction::StoreSlot { .. }
@@ -30,7 +30,7 @@ pub(super) fn instruction_uses(instruction: &Instruction) -> Vec<TempId> {
         Instruction::BatchRead { hash, .. } => vec![*hash],
         Instruction::BatchWrite { hash, value, .. } => vec![*hash, *value],
         Instruction::Call { args, .. } => args.clone(),
-        Instruction::BuiltinCall { args, .. } => args.clone(),
+        Instruction::IntrinsicCall { args, .. } => args.clone(),
         Instruction::Sleep { duration } => vec![*duration],
         Instruction::Yield => vec![],
     }
@@ -161,7 +161,7 @@ pub(super) fn substitute_in_instruction(
                 substitute_temp(arg, substitutions);
             }
         }
-        Instruction::BuiltinCall { args, .. } => {
+        Instruction::IntrinsicCall { args, .. } => {
             for arg in args.iter_mut() {
                 substitute_temp(arg, substitutions);
             }

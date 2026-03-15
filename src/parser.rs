@@ -5,7 +5,7 @@ use crate::ir::ast::{
     IfStatement, Item, LetStatement, LiteralKind, Parameter, Program, ReturnStatement,
     SleepStatement, Statement, WhileStatement,
 };
-use crate::ir::{BatchMode, BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
+use crate::ir::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 use crate::lexer::{Keyword, Literal, Operator, Punctuator, Token, TokenKind};
 
 /// Recursive-descent / Pratt parser.
@@ -750,9 +750,9 @@ impl Parser {
     fn parse_call(&mut self, name: String, name_span: Span) -> Result<Expression, ()> {
         let (args, close_span) = self.parse_argument_list()?;
         let span = Span::new(name_span.start, close_span.end);
-        if let Some(builtin) = name_to_builtin(&name) {
+        if let Some(intrinsic) = name_to_intrinsic(&name) {
             return Ok(Expression {
-                kind: ExpressionKind::BuiltinCall(builtin, args),
+                kind: ExpressionKind::IntrinsicCall(intrinsic, args),
                 span,
             });
         }
@@ -1018,29 +1018,29 @@ fn token_kind_name(kind: &TokenKind) -> &'static str {
     }
 }
 
-fn name_to_builtin(name: &str) -> Option<BuiltinFunction> {
+fn name_to_intrinsic(name: &str) -> Option<Intrinsic> {
     match name {
-        "abs" => Some(BuiltinFunction::Abs),
-        "ceil" => Some(BuiltinFunction::Ceil),
-        "floor" => Some(BuiltinFunction::Floor),
-        "round" => Some(BuiltinFunction::Round),
-        "trunc" => Some(BuiltinFunction::Trunc),
-        "sqrt" => Some(BuiltinFunction::Sqrt),
-        "exp" => Some(BuiltinFunction::Exp),
-        "log" => Some(BuiltinFunction::Log),
-        "sin" => Some(BuiltinFunction::Sin),
-        "cos" => Some(BuiltinFunction::Cos),
-        "tan" => Some(BuiltinFunction::Tan),
-        "asin" => Some(BuiltinFunction::Asin),
-        "acos" => Some(BuiltinFunction::Acos),
-        "atan" => Some(BuiltinFunction::Atan),
-        "atan2" => Some(BuiltinFunction::Atan2),
-        "pow" => Some(BuiltinFunction::Pow),
-        "min" => Some(BuiltinFunction::Min),
-        "max" => Some(BuiltinFunction::Max),
-        "lerp" => Some(BuiltinFunction::Lerp),
-        "clamp" => Some(BuiltinFunction::Clamp),
-        "rand" => Some(BuiltinFunction::Rand),
+        "abs" => Some(Intrinsic::Abs),
+        "ceil" => Some(Intrinsic::Ceil),
+        "floor" => Some(Intrinsic::Floor),
+        "round" => Some(Intrinsic::Round),
+        "trunc" => Some(Intrinsic::Trunc),
+        "sqrt" => Some(Intrinsic::Sqrt),
+        "exp" => Some(Intrinsic::Exp),
+        "log" => Some(Intrinsic::Log),
+        "sin" => Some(Intrinsic::Sin),
+        "cos" => Some(Intrinsic::Cos),
+        "tan" => Some(Intrinsic::Tan),
+        "asin" => Some(Intrinsic::Asin),
+        "acos" => Some(Intrinsic::Acos),
+        "atan" => Some(Intrinsic::Atan),
+        "atan2" => Some(Intrinsic::Atan2),
+        "pow" => Some(Intrinsic::Pow),
+        "min" => Some(Intrinsic::Min),
+        "max" => Some(Intrinsic::Max),
+        "lerp" => Some(Intrinsic::Lerp),
+        "clamp" => Some(Intrinsic::Clamp),
+        "rand" => Some(Intrinsic::Rand),
         _ => None,
     }
 }
@@ -1068,7 +1068,7 @@ mod tests {
         AssignmentTarget, ConstDeclaration, DeviceDeclaration, ElseClause, ExpressionKind,
         FunctionDeclaration, Item, LetStatement, LiteralKind, Program, Statement,
     };
-    use crate::ir::{BatchMode, BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
+    use crate::ir::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
     fn parse_ok(source: &str) -> Program {
         let (program, diagnostics) = parse(source);
@@ -1970,85 +1970,85 @@ mod tests {
     }
 
     #[test]
-    fn builtin_abs() {
+    fn intrinsic_abs() {
         let statement = single_let("fn f() { let x = abs(v); }");
-        if let ExpressionKind::BuiltinCall(function, arguments) = &statement.init.kind {
-            assert_eq!(*function, BuiltinFunction::Abs);
+        if let ExpressionKind::IntrinsicCall(function, arguments) = &statement.init.kind {
+            assert_eq!(*function, Intrinsic::Abs);
             assert_eq!(arguments.len(), 1);
         } else {
-            panic!("expected builtin call");
+            panic!("expected intrinsic call");
         }
     }
 
     #[test]
-    fn builtin_atan2() {
+    fn intrinsic_atan2() {
         let statement = single_let("fn f() { let x = atan2(y, x); }");
-        if let ExpressionKind::BuiltinCall(function, arguments) = &statement.init.kind {
-            assert_eq!(*function, BuiltinFunction::Atan2);
+        if let ExpressionKind::IntrinsicCall(function, arguments) = &statement.init.kind {
+            assert_eq!(*function, Intrinsic::Atan2);
             assert_eq!(arguments.len(), 2);
         } else {
-            panic!("expected builtin call");
+            panic!("expected intrinsic call");
         }
     }
 
     #[test]
-    fn builtin_clamp() {
+    fn intrinsic_clamp() {
         let statement = single_let("fn f() { let x = clamp(v, 0, 100); }");
-        if let ExpressionKind::BuiltinCall(function, arguments) = &statement.init.kind {
-            assert_eq!(*function, BuiltinFunction::Clamp);
+        if let ExpressionKind::IntrinsicCall(function, arguments) = &statement.init.kind {
+            assert_eq!(*function, Intrinsic::Clamp);
             assert_eq!(arguments.len(), 3);
         } else {
-            panic!("expected builtin call");
+            panic!("expected intrinsic call");
         }
     }
 
     #[test]
-    fn builtin_lerp() {
+    fn intrinsic_lerp() {
         let statement = single_let("fn f() { let x = lerp(a, b, t); }");
-        if let ExpressionKind::BuiltinCall(function, _) = &statement.init.kind {
-            assert_eq!(*function, BuiltinFunction::Lerp);
+        if let ExpressionKind::IntrinsicCall(function, _) = &statement.init.kind {
+            assert_eq!(*function, Intrinsic::Lerp);
         } else {
-            panic!("expected builtin call");
+            panic!("expected intrinsic call");
         }
     }
 
     #[test]
-    fn all_single_argument_builtins_recognized() {
+    fn all_single_argument_intrinsics_recognized() {
         let cases = [
-            ("abs", BuiltinFunction::Abs),
-            ("ceil", BuiltinFunction::Ceil),
-            ("floor", BuiltinFunction::Floor),
-            ("round", BuiltinFunction::Round),
-            ("trunc", BuiltinFunction::Trunc),
-            ("sqrt", BuiltinFunction::Sqrt),
-            ("exp", BuiltinFunction::Exp),
-            ("log", BuiltinFunction::Log),
-            ("sin", BuiltinFunction::Sin),
-            ("cos", BuiltinFunction::Cos),
-            ("tan", BuiltinFunction::Tan),
-            ("asin", BuiltinFunction::Asin),
-            ("acos", BuiltinFunction::Acos),
-            ("atan", BuiltinFunction::Atan),
+            ("abs", Intrinsic::Abs),
+            ("ceil", Intrinsic::Ceil),
+            ("floor", Intrinsic::Floor),
+            ("round", Intrinsic::Round),
+            ("trunc", Intrinsic::Trunc),
+            ("sqrt", Intrinsic::Sqrt),
+            ("exp", Intrinsic::Exp),
+            ("log", Intrinsic::Log),
+            ("sin", Intrinsic::Sin),
+            ("cos", Intrinsic::Cos),
+            ("tan", Intrinsic::Tan),
+            ("asin", Intrinsic::Asin),
+            ("acos", Intrinsic::Acos),
+            ("atan", Intrinsic::Atan),
         ];
         for (name, expected) in cases {
             let source = format!("fn f() {{ let x = {}(v); }}", name);
             let statement = single_let(&source);
-            if let ExpressionKind::BuiltinCall(function, _) = &statement.init.kind {
-                assert_eq!(*function, expected, "wrong builtin for `{}`", name);
+            if let ExpressionKind::IntrinsicCall(function, _) = &statement.init.kind {
+                assert_eq!(*function, expected, "wrong intrinsic for `{}`", name);
             } else {
-                panic!("expected builtin call for `{}`", name);
+                panic!("expected intrinsic call for `{}`", name);
             }
         }
     }
 
     #[test]
-    fn builtin_rand_no_args() {
+    fn intrinsic_rand_no_args() {
         let statement = single_let("fn f() { let x = rand(); }");
-        if let ExpressionKind::BuiltinCall(function, arguments) = &statement.init.kind {
-            assert_eq!(*function, BuiltinFunction::Rand);
+        if let ExpressionKind::IntrinsicCall(function, arguments) = &statement.init.kind {
+            assert_eq!(*function, Intrinsic::Rand);
             assert!(arguments.is_empty());
         } else {
-            panic!("expected builtin call");
+            panic!("expected intrinsic call");
         }
     }
 

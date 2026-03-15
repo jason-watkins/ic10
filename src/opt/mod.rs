@@ -464,18 +464,18 @@ mod tests {
     }
 
     #[test]
-    fn builtin_constant_folding() {
+    fn intrinsic_constant_folding() {
         let program = build_optimized("fn main() { let x: f64 = sqrt(4.0); }");
         let main = get_function(&program, "main");
-        let has_builtin = main.blocks.iter().any(|block| {
+        let has_intrinsic = main.blocks.iter().any(|block| {
             block
                 .instructions
                 .iter()
-                .any(|i| matches!(i, Instruction::BuiltinCall { .. }))
+                .any(|i| matches!(i, Instruction::IntrinsicCall { .. }))
         });
         assert!(
-            !has_builtin,
-            "builtin call with constant args should be folded"
+            !has_intrinsic,
+            "intrinsic call with constant args should be folded"
         );
     }
 

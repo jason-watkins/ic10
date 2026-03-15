@@ -4,7 +4,7 @@ use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator,
 };
 use crate::ir::resolved::SymbolTable;
-use crate::ir::{BinaryOperator, BuiltinFunction, Type, UnaryOperator};
+use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
 use super::allocator::{AllocationResult, SpillRecord};
 use super::calling_convention::{CallingConventionInfo, FunctionClass};
@@ -382,12 +382,12 @@ impl<'a> Emitter<'a> {
             } => {
                 self.lower_call(*dest, *function, args, position);
             }
-            Instruction::BuiltinCall {
+            Instruction::IntrinsicCall {
                 dest,
                 function,
                 args,
             } => {
-                self.lower_builtin_call(*dest, *function, args);
+                self.lower_intrinsic_call(*dest, *function, args);
             }
             Instruction::Sleep { duration } => {
                 self.emit(IC10Instruction::Sleep(self.operand_of(*duration)));
@@ -520,56 +520,50 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn lower_builtin_call(&mut self, dest: TempId, function: BuiltinFunction, args: &[TempId]) {
+    fn lower_intrinsic_call(&mut self, dest: TempId, function: Intrinsic, args: &[TempId]) {
         let dest_register = self.register_of(dest);
         let instruction = match function {
-            BuiltinFunction::Abs => IC10Instruction::Abs(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Ceil => IC10Instruction::Ceil(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Floor => {
-                IC10Instruction::Floor(dest_register, self.operand_of(args[0]))
-            }
-            BuiltinFunction::Round => {
-                IC10Instruction::Round(dest_register, self.operand_of(args[0]))
-            }
-            BuiltinFunction::Trunc => {
-                IC10Instruction::Trunc(dest_register, self.operand_of(args[0]))
-            }
-            BuiltinFunction::Sqrt => IC10Instruction::Sqrt(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Exp => IC10Instruction::Exp(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Log => IC10Instruction::Log(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Sin => IC10Instruction::Sin(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Cos => IC10Instruction::Cos(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Tan => IC10Instruction::Tan(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Asin => IC10Instruction::Asin(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Acos => IC10Instruction::Acos(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Atan => IC10Instruction::Atan(dest_register, self.operand_of(args[0])),
-            BuiltinFunction::Atan2 => IC10Instruction::Atan2(
+            Intrinsic::Abs => IC10Instruction::Abs(dest_register, self.operand_of(args[0])),
+            Intrinsic::Ceil => IC10Instruction::Ceil(dest_register, self.operand_of(args[0])),
+            Intrinsic::Floor => IC10Instruction::Floor(dest_register, self.operand_of(args[0])),
+            Intrinsic::Round => IC10Instruction::Round(dest_register, self.operand_of(args[0])),
+            Intrinsic::Trunc => IC10Instruction::Trunc(dest_register, self.operand_of(args[0])),
+            Intrinsic::Sqrt => IC10Instruction::Sqrt(dest_register, self.operand_of(args[0])),
+            Intrinsic::Exp => IC10Instruction::Exp(dest_register, self.operand_of(args[0])),
+            Intrinsic::Log => IC10Instruction::Log(dest_register, self.operand_of(args[0])),
+            Intrinsic::Sin => IC10Instruction::Sin(dest_register, self.operand_of(args[0])),
+            Intrinsic::Cos => IC10Instruction::Cos(dest_register, self.operand_of(args[0])),
+            Intrinsic::Tan => IC10Instruction::Tan(dest_register, self.operand_of(args[0])),
+            Intrinsic::Asin => IC10Instruction::Asin(dest_register, self.operand_of(args[0])),
+            Intrinsic::Acos => IC10Instruction::Acos(dest_register, self.operand_of(args[0])),
+            Intrinsic::Atan => IC10Instruction::Atan(dest_register, self.operand_of(args[0])),
+            Intrinsic::Atan2 => IC10Instruction::Atan2(
                 dest_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
             ),
-            BuiltinFunction::Pow => IC10Instruction::Pow(
+            Intrinsic::Pow => IC10Instruction::Pow(
                 dest_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
             ),
-            BuiltinFunction::Min => IC10Instruction::Min(
+            Intrinsic::Min => IC10Instruction::Min(
                 dest_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
             ),
-            BuiltinFunction::Max => IC10Instruction::Max(
+            Intrinsic::Max => IC10Instruction::Max(
                 dest_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
             ),
-            BuiltinFunction::Lerp => IC10Instruction::Lerp(
+            Intrinsic::Lerp => IC10Instruction::Lerp(
                 dest_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
                 self.operand_of(args[2]),
             ),
-            BuiltinFunction::Clamp => {
+            Intrinsic::Clamp => {
                 // clamp(x, min, max) → max(min, min(x, max))
                 // Uses two instructions: min then max.
                 self.emit(IC10Instruction::Min(
@@ -583,7 +577,7 @@ impl<'a> Emitter<'a> {
                     self.operand_of(args[1]),
                 )
             }
-            BuiltinFunction::Rand => IC10Instruction::Rand(dest_register),
+            Intrinsic::Rand => IC10Instruction::Rand(dest_register),
         };
         self.emit(instruction);
     }

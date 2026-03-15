@@ -202,11 +202,11 @@ impl Builder {
                 )
             }
 
-            ExpressionKind::BuiltinCall(function, args) => {
+            ExpressionKind::IntrinsicCall(function, args) => {
                 let arg_temps: Vec<TempId> =
                     args.iter().map(|a| self.lower_expression(a)).collect();
                 let dest = self.fresh_temp();
-                self.emit(Instruction::BuiltinCall {
+                self.emit(Instruction::IntrinsicCall {
                     dest,
                     function: *function,
                     args: arg_temps,
@@ -404,11 +404,11 @@ impl Builder {
                     args: arg_temps,
                 });
             }
-            ExpressionKind::BuiltinCall(function, args) => {
+            ExpressionKind::IntrinsicCall(function, args) => {
                 let arg_temps: Vec<TempId> =
                     args.iter().map(|a| self.lower_expression(a)).collect();
                 let dest = self.fresh_temp();
-                self.emit(Instruction::BuiltinCall {
+                self.emit(Instruction::IntrinsicCall {
                     dest,
                     function: *function,
                     args: arg_temps,
@@ -824,7 +824,7 @@ pub fn build(resolved_program: &ResolvedProgram) -> (Program, Vec<Diagnostic>) {
 mod tests {
     use super::*;
     use crate::ir::cfg::{Function, Instruction, Operation, Program, TempId, Terminator};
-    use crate::ir::{BatchMode, BuiltinFunction, DevicePin, UnaryOperator};
+    use crate::ir::{BatchMode, DevicePin, Intrinsic, UnaryOperator};
     use crate::parser::parse;
     use crate::resolve::resolve;
 
@@ -1116,7 +1116,7 @@ mod tests {
     }
 
     #[test]
-    fn builtin_call_instruction() {
+    fn intrinsic_call_instruction() {
         let program = build_cfg("fn main() { let x = sqrt(4.0); }");
         let main = get_function(&program, "main");
         let instructions = &main.blocks[0].instructions;
@@ -1127,7 +1127,7 @@ mod tests {
         ));
         assert!(matches!(
             &instructions[1],
-            Instruction::BuiltinCall { dest: TempId(1), function: BuiltinFunction::Sqrt, args }
+            Instruction::IntrinsicCall { dest: TempId(1), function: Intrinsic::Sqrt, args }
             if args == &[TempId(0)]
         ));
         assert!(matches!(

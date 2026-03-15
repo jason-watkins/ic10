@@ -164,7 +164,7 @@ fn instruction_defs(instruction: &Instruction) -> Vec<TempId> {
         Instruction::Call {
             dest: Some(dest), ..
         } => vec![*dest],
-        Instruction::BuiltinCall { dest, .. } => vec![*dest],
+        Instruction::IntrinsicCall { dest, .. } => vec![*dest],
         Instruction::StoreDevice { .. }
         | Instruction::StoreSlot { .. }
         | Instruction::BatchWrite { .. }
@@ -186,7 +186,7 @@ pub(crate) fn instruction_uses(instruction: &Instruction) -> Vec<TempId> {
         Instruction::BatchRead { hash, .. } => vec![*hash],
         Instruction::BatchWrite { hash, value, .. } => vec![*hash, *value],
         Instruction::Call { args, .. } => args.clone(),
-        Instruction::BuiltinCall { args, .. } => args.clone(),
+        Instruction::IntrinsicCall { args, .. } => args.clone(),
         Instruction::Sleep { duration } => vec![*duration],
         Instruction::Yield => vec![],
     }

@@ -321,11 +321,11 @@ fn inline_call_into_function(
                     function: *function,
                     args: args.iter().map(|&a| remap_temp(a)).collect(),
                 },
-                Instruction::BuiltinCall {
+                Instruction::IntrinsicCall {
                     dest,
                     function,
                     args,
-                } => Instruction::BuiltinCall {
+                } => Instruction::IntrinsicCall {
                     dest: remap_temp(*dest),
                     function: *function,
                     args: args.iter().map(|&a| remap_temp(a)).collect(),

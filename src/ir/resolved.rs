@@ -1,6 +1,6 @@
 use crate::diagnostic::Span;
 
-use super::shared::{BatchMode, BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
+use super::shared::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
 /// An opaque index into a `SymbolTable`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -226,7 +226,7 @@ pub enum ExpressionKind {
     Unary(UnaryOperator, Box<Expression>),
     Cast(Box<Expression>, Type),
     Call(SymbolId, Vec<Expression>),
-    BuiltinCall(BuiltinFunction, Vec<Expression>),
+    IntrinsicCall(Intrinsic, Vec<Expression>),
     DeviceRead {
         pin: DevicePin,
         field: String,

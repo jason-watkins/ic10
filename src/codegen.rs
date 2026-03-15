@@ -632,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn builtin_sqrt() {
+    fn intrinsic_sqrt() {
         let lines = compile_lines(
             r#"
             device io: d0;

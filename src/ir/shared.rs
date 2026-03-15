@@ -68,9 +68,9 @@ pub enum UnaryOperator {
     BitNot,
 }
 
-/// Built-in math/utility functions that map to IC10 instructions (§5.11).
+/// Intrinsic math/utility functions that map directly to IC10 instructions (§5.11).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinFunction {
+pub enum Intrinsic {
     Abs,
     Ceil,
     Floor,
