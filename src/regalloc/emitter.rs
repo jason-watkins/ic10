@@ -234,7 +234,6 @@ impl<'a> Emitter<'a> {
             }
 
             let instructions = self.block(block_id).instructions.clone();
-            let instruction_count = instructions.len();
 
             for (instruction_index, instruction) in instructions.iter().enumerate() {
                 let position =
@@ -242,16 +241,7 @@ impl<'a> Emitter<'a> {
 
                 self.emit_spills_at(position);
                 self.emit_reloads_at(position);
-
-                let should_suppress = self.should_suppress_for_branch_fusion(
-                    block_id,
-                    instruction_index,
-                    instruction_count,
-                );
-
-                if !should_suppress {
-                    self.lower_instruction(instruction, position);
-                }
+                self.lower_instruction(instruction, position);
             }
 
             let terminator_position = self.linear_map.terminator_positions[&block_id];
@@ -260,7 +250,7 @@ impl<'a> Emitter<'a> {
 
             let next_block = block_order.get(block_index + 1).copied();
             let terminator = self.block(block_id).terminator.clone();
-            self.lower_terminator(block_id, &terminator, next_block, is_entry, is_non_leaf);
+            self.lower_terminator(&terminator, next_block, is_entry, is_non_leaf);
         }
 
         let call_sites = self.call_sites;
@@ -272,39 +262,6 @@ impl<'a> Emitter<'a> {
             },
             call_sites,
         )
-    }
-
-    fn should_suppress_for_branch_fusion(
-        &self,
-        block_id: BlockId,
-        instruction_index: usize,
-        instruction_count: usize,
-    ) -> bool {
-        if instruction_index != instruction_count - 1 {
-            return false;
-        }
-        let block = self.block(block_id);
-        let Terminator::Branch { condition, .. } = &block.terminator else {
-            return false;
-        };
-        let instruction = &block.instructions[instruction_index];
-        if let Instruction::Assign {
-            dest,
-            operation:
-                Operation::Binary {
-                    operator,
-                    left,
-                    right,
-                },
-        } = instruction
-            && dest == condition
-            && is_fusible_comparison(operator)
-        {
-            let left_reg = self.assignments.get(left);
-            let right_reg = self.assignments.get(right);
-            return left_reg.is_some() && right_reg.is_some();
-        }
-        false
     }
 
     fn lower_instruction(&mut self, instruction: &Instruction, position: LinearPosition) {
@@ -642,7 +599,6 @@ impl<'a> Emitter<'a> {
 
     fn lower_terminator(
         &mut self,
-        block_id: BlockId,
         terminator: &Terminator,
         next_block: Option<BlockId>,
         is_entry: bool,
@@ -661,7 +617,7 @@ impl<'a> Emitter<'a> {
                 true_block,
                 false_block,
             } => {
-                self.lower_branch(block_id, *condition, *true_block, *false_block, next_block);
+                self.lower_branch(*condition, *true_block, *false_block, next_block);
             }
             Terminator::Return(value) => {
                 if is_entry {
@@ -687,39 +643,11 @@ impl<'a> Emitter<'a> {
 
     fn lower_branch(
         &mut self,
-        block_id: BlockId,
         condition: TempId,
         true_block: BlockId,
         false_block: BlockId,
         next_block: Option<BlockId>,
     ) {
-        let block = self.block(block_id);
-        if let Some(last_instruction) = block.instructions.last()
-            && let Instruction::Assign {
-                dest,
-                operation:
-                    Operation::Binary {
-                        operator,
-                        left,
-                        right,
-                    },
-            } = last_instruction
-            && *dest == condition
-            && is_fusible_comparison(operator)
-        {
-            let left_operand = self.operand_of(*left);
-            let right_operand = self.operand_of(*right);
-            self.emit_fused_branch(
-                *operator,
-                left_operand,
-                right_operand,
-                true_block,
-                false_block,
-                next_block,
-            );
-            return;
-        }
-
         let condition_operand = self.operand_of(condition);
         if Some(false_block) == next_block {
             self.emit(IC10Instruction::BranchNotEqualZero(
@@ -742,66 +670,6 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_fused_branch(
-        &mut self,
-        operator: BinaryOperator,
-        left: Operand,
-        right: Operand,
-        true_block: BlockId,
-        false_block: BlockId,
-        next_block: Option<BlockId>,
-    ) {
-        let true_label = JumpTarget::Label(self.block_label(true_block));
-        let false_label = JumpTarget::Label(self.block_label(false_block));
-
-        if Some(false_block) == next_block {
-            let branch = match operator {
-                BinaryOperator::Eq => IC10Instruction::BranchEqual(left, right, true_label),
-                BinaryOperator::Ne => IC10Instruction::BranchNotEqual(left, right, true_label),
-                BinaryOperator::Lt => IC10Instruction::BranchLessThan(left, right, true_label),
-                BinaryOperator::Gt => IC10Instruction::BranchGreaterThan(left, right, true_label),
-                BinaryOperator::Le => IC10Instruction::BranchLessEqual(left, right, true_label),
-                BinaryOperator::Ge => IC10Instruction::BranchGreaterEqual(left, right, true_label),
-                _ => unreachable!("non-comparison operator in fused branch"),
-            };
-            self.emit(branch);
-        } else if Some(true_block) == next_block {
-            let inverted = match operator {
-                BinaryOperator::Eq => IC10Instruction::BranchNotEqual(left, right, false_label),
-                BinaryOperator::Ne => IC10Instruction::BranchEqual(left, right, false_label),
-                BinaryOperator::Lt => IC10Instruction::BranchGreaterEqual(left, right, false_label),
-                BinaryOperator::Gt => IC10Instruction::BranchLessEqual(left, right, false_label),
-                BinaryOperator::Le => IC10Instruction::BranchGreaterThan(left, right, false_label),
-                BinaryOperator::Ge => IC10Instruction::BranchLessThan(left, right, false_label),
-                _ => unreachable!("non-comparison operator in fused branch"),
-            };
-            self.emit(inverted);
-        } else {
-            let branch = match operator {
-                BinaryOperator::Eq => IC10Instruction::BranchEqual(left, right, true_label),
-                BinaryOperator::Ne => IC10Instruction::BranchNotEqual(left, right, true_label),
-                BinaryOperator::Lt => IC10Instruction::BranchLessThan(left, right, true_label),
-                BinaryOperator::Gt => IC10Instruction::BranchGreaterThan(left, right, true_label),
-                BinaryOperator::Le => IC10Instruction::BranchLessEqual(left, right, true_label),
-                BinaryOperator::Ge => IC10Instruction::BranchGreaterEqual(left, right, true_label),
-                _ => unreachable!("non-comparison operator in fused branch"),
-            };
-            self.emit(branch);
-            self.emit(IC10Instruction::Jump(false_label));
-        }
-    }
-}
-
-fn is_fusible_comparison(operator: &BinaryOperator) -> bool {
-    matches!(
-        operator,
-        BinaryOperator::Eq
-            | BinaryOperator::Ne
-            | BinaryOperator::Lt
-            | BinaryOperator::Gt
-            | BinaryOperator::Le
-            | BinaryOperator::Ge
-    )
 }
 
 fn register_for_index(index: usize) -> Register {

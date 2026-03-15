@@ -432,7 +432,7 @@ mod tests {
         ssa::construct_program(&mut program);
         let opt_features = opt::Features::from_opt_level(opt::OptLevel::O2);
         opt::optimize_program(&mut program, opt::OptLevel::O2, &opt_features);
-        let ic10_program = regalloc::allocate_registers(&mut program, false)
+        let ic10_program = regalloc::allocate_registers(&mut program, false, &opt_features)
             .unwrap_or_else(|diagnostics| panic!("regalloc errors: {diagnostics:#?}"));
         let (text, diagnostics) = generate(&ic10_program, false);
         assert!(

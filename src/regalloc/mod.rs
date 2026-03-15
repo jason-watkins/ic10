@@ -7,6 +7,7 @@ pub(crate) mod phi;
 
 use crate::diagnostic::Diagnostic;
 use crate::ir::cfg::Program;
+use crate::opt::Features;
 
 pub use allocator::{AllocationResult, SpillRecord, allocate_function, resolve_parallel_moves};
 pub use calling_convention::{
@@ -27,6 +28,7 @@ pub use phi::deconstruct_phis;
 pub fn allocate_registers(
     program: &mut Program,
     keep_labels: bool,
+    features: &Features,
 ) -> Result<IC10Program, Vec<Diagnostic>> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
@@ -77,6 +79,12 @@ pub fn allocate_registers(
     for function in &mut ic10_functions {
         insert_callee_saves(function);
     }
+
+    let mut ic10_program = IC10Program {
+        functions: ic10_functions,
+    };
+    crate::opt::ic10::optimize_program(&mut ic10_program, features);
+    let mut ic10_functions = ic10_program.functions;
 
     // Order functions: main first, then others in declaration order.
     ic10_functions.sort_by_key(|f| if f.is_entry { 0 } else { 1 });
@@ -1387,7 +1395,8 @@ mod tests {
 
     fn compile_to_ic10(source: &str) -> IC10Program {
         let mut program = build_ssa(source);
-        allocate_registers(&mut program, false)
+        let features = Features::from_opt_level(crate::opt::OptLevel::O2);
+        allocate_registers(&mut program, false, &features)
             .unwrap_or_else(|diagnostics| panic!("register allocation failed: {:#?}", diagnostics))
     }
 
@@ -1395,7 +1404,8 @@ mod tests {
         source: &str,
     ) -> Result<IC10Program, Vec<crate::diagnostic::Diagnostic>> {
         let mut program = build_ssa(source);
-        allocate_registers(&mut program, false)
+        let features = Features::from_opt_level(crate::opt::OptLevel::O2);
+        allocate_registers(&mut program, false, &features)
     }
 
     fn all_instructions(program: &IC10Program) -> Vec<&IC10Instruction> {

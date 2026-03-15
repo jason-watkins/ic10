@@ -30,6 +30,8 @@ enum Feature {
     BlockDeduplication,
     #[value(name = "inline")]
     Inline,
+    #[value(name = "branch-fusion")]
+    BranchFusion,
     #[value(name = "symbolic-labels")]
     SymbolicLabels,
 }
@@ -72,6 +74,7 @@ fn apply_feature_toggles(features: &mut Features, toggles: &[FeatureToggle]) {
             Feature::BlockSimplification => features.block_simplification = toggle.enable,
             Feature::BlockDeduplication => features.block_deduplication = toggle.enable,
             Feature::Inline => features.inline = toggle.enable,
+            Feature::BranchFusion => features.branch_fusion = toggle.enable,
             Feature::SymbolicLabels => features.symbolic_labels = toggle.enable,
         }
     }
@@ -158,7 +161,7 @@ struct Arguments {
     /// Enable or disable an individual optimization pass or code generation feature.
     /// May be passed multiple times. Use `no-<name>` to disable (e.g. `-f no-inline`).
     /// Valid features: constant-propagation, copy-propagation, global-value-numbering,
-    /// dead-code-elimination, block-simplification, inline, symbolic-labels.
+    /// dead-code-elimination, block-simplification, inline, branch-fusion, symbolic-labels.
     #[arg(short = 'f', long = "feature", value_name = "FEATURE")]
     features: Vec<FeatureToggle>,
 }
@@ -227,7 +230,7 @@ fn main() {
     opt::optimize_program(&mut program, opt_level, &opt_features);
 
     let keep_labels = opt_features.symbolic_labels;
-    let ic10_program = match regalloc::allocate_registers(&mut program, keep_labels) {
+    let ic10_program = match regalloc::allocate_registers(&mut program, keep_labels, &opt_features) {
         Ok(result) => result,
         Err(diagnostics) => {
             emit_diagnostics(&diagnostics, &source, &filename);

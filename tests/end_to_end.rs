@@ -33,7 +33,7 @@ fn compile(source: &str) -> Result<String, String> {
     let opt_features = ic20::opt::Features::from_opt_level(OptLevel::O2);
     opt::optimize_program(&mut program, OptLevel::O2, &opt_features);
 
-    let ic10_program = regalloc::allocate_registers(&mut program, false)
+    let ic10_program = regalloc::allocate_registers(&mut program, false, &opt_features)
         .map_err(|diagnostics| format!("regalloc errors: {diagnostics:#?}"))?;
 
     let (text, codegen_diagnostics) = codegen::generate(&ic10_program, false);
