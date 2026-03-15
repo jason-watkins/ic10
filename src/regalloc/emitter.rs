@@ -151,8 +151,16 @@ impl<'a> Emitter<'a> {
 
     fn block_label(&self, block_id: BlockId) -> String {
         let prefix = snake_case_to_camel_case(&self.function.name);
-        match self.function.blocks[block_id.0].role {
-            BlockRole::Entry => prefix,
+        self.block_label_with_prefix(
+            block_id,
+            &prefix,
+            &self.function.blocks[block_id.0].role.clone(),
+        )
+    }
+
+    fn block_label_with_prefix(&self, block_id: BlockId, prefix: &str, role: &BlockRole) -> String {
+        match role {
+            BlockRole::Entry => prefix.to_owned(),
             BlockRole::LoopStart(n) => format!("{}Loop{}Start", prefix, n),
             BlockRole::LoopBody(n) => format!("{}Loop{}Body", prefix, n),
             BlockRole::LoopContinue(n) => format!("{}Loop{}Continue", prefix, n),
@@ -161,6 +169,20 @@ impl<'a> Emitter<'a> {
             BlockRole::IfFalse(n) => format!("{}If{}False", prefix, n),
             BlockRole::IfEnd(n) => format!("{}If{}End", prefix, n),
             BlockRole::Generic => format!("{}Block{}", prefix, block_id.0),
+            BlockRole::Inlined {
+                callee_name,
+                original_role,
+            } => {
+                let callee_prefix = snake_case_to_camel_case(callee_name);
+                match original_role.as_ref() {
+                    // Entry and Generic fall back to block ID to avoid duplicate labels when
+                    // the same callee is inlined at multiple call sites.
+                    BlockRole::Entry | BlockRole::Generic => {
+                        format!("{}Block{}", callee_prefix, block_id.0)
+                    }
+                    other => self.block_label_with_prefix(block_id, &callee_prefix, other),
+                }
+            }
         }
     }
 
@@ -598,8 +620,9 @@ impl<'a> Emitter<'a> {
             }
         }
 
+        let camel_function_name = snake_case_to_camel_case(&function_name);
         self.emit(IC10Instruction::JumpAndLink(JumpTarget::Label(
-            function_name.clone(),
+            camel_function_name.clone(),
         )));
 
         if let Some(dest_temp) = dest {
@@ -617,7 +640,7 @@ impl<'a> Emitter<'a> {
         self.call_sites.push(EmittedCallSite {
             sequence_start,
             sequence_end,
-            callee_name: function_name,
+            callee_name: camel_function_name,
             arg_count: args.len(),
             live_across_registers,
         });
@@ -950,20 +973,22 @@ pub fn compute_clobber_sets(functions: &[IC10Function]) -> HashMap<String, HashS
             }
         }
 
-        clobber.insert(function.name.clone(), direct_writes);
-        callees.insert(function.name.clone(), targets);
+        let camel_name = snake_case_to_camel_case(&function.name);
+        clobber.insert(camel_name.clone(), direct_writes);
+        callees.insert(camel_name, targets);
     }
 
     loop {
         let mut changed = false;
         for function in functions {
-            if let Some(targets) = callees.get(&function.name) {
+            let camel_name = snake_case_to_camel_case(&function.name);
+            if let Some(targets) = callees.get(&camel_name) {
                 let callee_registers: HashSet<Register> = targets
                     .iter()
                     .flat_map(|target| clobber.get(target).cloned().unwrap_or_default())
                     .collect();
 
-                let function_set = clobber.get_mut(&function.name).unwrap();
+                let function_set = clobber.get_mut(&camel_name).unwrap();
                 let old_size = function_set.len();
                 function_set.extend(callee_registers);
                 if function_set.len() > old_size {

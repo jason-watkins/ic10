@@ -76,6 +76,12 @@ pub enum BlockRole {
     IfEnd(usize),
     /// Generic block with no special structural role.
     Generic,
+    /// A block that was inlined from another function. Retains the original role and the
+    /// callee's name so that generated labels reflect the inlined function's structure.
+    Inlined {
+        callee_name: String,
+        original_role: Box<BlockRole>,
+    },
 }
 
 /// A basic block: a linear sequence of instructions ending with a terminator.

@@ -368,7 +368,10 @@ fn inline_call_into_function(
 
         inlined_blocks.push(BasicBlock {
             id: remap_block(callee_block.id),
-            role: BlockRole::Generic,
+            role: BlockRole::Inlined {
+                callee_name: callee.name.clone(),
+                original_role: Box::new(callee_block.role.clone()),
+            },
             instructions,
             terminator,
             predecessors: callee_block

@@ -1,0 +1,73 @@
+device suit: db;
+device helmet: d0;
+device pack: d1;
+
+fn kelvin(t: f64) -> f64 {
+    return t + 273.15;
+}
+
+fn main() {
+    let mut filter_count = 0;
+    loop {
+        if conditions_safe() {
+            helmet.Lock = 0.0;
+            if helmet.Open == 1.0 {
+                suit.AirRelease = 0.0;
+                suit.On = 0.0;
+                suit.Filtration = 0.0;
+            }
+            else {
+                suit.AirRelease = 1.0;
+                suit.On = 1.0;
+                suit.Filtration = 1.0;
+            }
+        }
+        else {
+            suit.AirRelease = 1.0;
+            suit.On = 1.0;
+            suit.Filtration = 1.0;
+            helmet.Open = 0.0;
+            helmet.Lock = 1.0;
+        }
+        yield;
+    }
+}
+
+fn filter_if_needed(filter_count: i53) -> i53 {
+    let co2 = suit.RatioCarbonDioxide;
+    if co2 > 0.30 {
+        suit.Filtration = 1.0;
+        return 120;
+    }
+    else if co2 <= 0.0 && filter_count <= 0 {
+        suit.Filtration = 0.0;
+        return 0;
+    }
+    else {
+        return filter_count - 1;
+    }
+}
+
+fn conditions_safe() -> bool {
+    let pressure_min = 45.0;
+    let pressure_max = 175.0;
+    let pressure = suit.PressureExternal;
+    if pressure < pressure_min {
+        return false;
+    }
+    if pressure > pressure_max {
+        return false;
+    }
+
+    let temperature_min = kelvin(10.0);
+    let temperature_max = kelvin(35.0);
+    let temperature = suit.TemperatureExternal;
+    if temperature < temperature_min {
+         return false;
+    }
+    if temperature > temperature_max {
+        return false;
+    }
+
+    return true;
+}
