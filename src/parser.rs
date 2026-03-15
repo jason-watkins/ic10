@@ -1,11 +1,11 @@
-use crate::ast::{
-    AssignStatement, AssignmentTarget, BatchMode, BinaryOperator, Block, BuiltinFunction,
-    CallExpression, ConstDeclaration, DeviceDeclaration, DevicePin, ElseClause, Expression,
-    ExpressionKind, ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement, Item,
-    LetStatement, LiteralKind, Parameter, Program, ReturnStatement, SleepStatement, Statement,
-    Type, UnaryOperator, WhileStatement,
-};
 use crate::diagnostic::{Diagnostic, Span};
+use crate::ir::ast::{
+    AssignStatement, AssignmentTarget, Block, CallExpression, ConstDeclaration, DeviceDeclaration,
+    ElseClause, Expression, ExpressionKind, ExpressionStatement, ForStatement, FunctionDeclaration,
+    IfStatement, Item, LetStatement, LiteralKind, Parameter, Program, ReturnStatement,
+    SleepStatement, Statement, WhileStatement,
+};
+use crate::ir::{BatchMode, BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
 use crate::lexer::{Keyword, Literal, Operator, Punctuator, Token, TokenKind};
 
 /// Recursive-descent / Pratt parser.
@@ -1063,12 +1063,12 @@ mod tests {
     use core::f64;
 
     use super::parse;
-    use crate::ast::{
-        AssignmentTarget, BatchMode, BinaryOperator, BuiltinFunction, ConstDeclaration,
-        DeviceDeclaration, DevicePin, ElseClause, ExpressionKind, FunctionDeclaration, Item,
-        LetStatement, LiteralKind, Program, Statement, Type, UnaryOperator,
-    };
     use crate::diagnostic::{Diagnostic, Severity};
+    use crate::ir::ast::{
+        AssignmentTarget, ConstDeclaration, DeviceDeclaration, ElseClause, ExpressionKind,
+        FunctionDeclaration, Item, LetStatement, LiteralKind, Program, Statement,
+    };
+    use crate::ir::{BatchMode, BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
 
     fn parse_ok(source: &str) -> Program {
         let (program, diagnostics) = parse(source);

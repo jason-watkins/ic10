@@ -15,7 +15,7 @@ use dead_code_elimination::dead_code_elimination;
 use global_value_numbering::global_value_numbering;
 use inline::inline_functions;
 
-use crate::cfg::{Function, Program};
+use crate::ir::cfg::{Function, Program};
 
 /// Controls which optimization passes run and whether they iterate to fixpoint.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -162,7 +162,8 @@ fn optimize_to_fixpoint(function: &mut Function, features: &Features) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cfg::{self, Instruction, Operation};
+    use crate::cfg;
+    use crate::ir::cfg::{Function, Instruction, Operation, Program};
     use crate::parser::parse;
     use crate::resolve::resolve;
     use crate::ssa;

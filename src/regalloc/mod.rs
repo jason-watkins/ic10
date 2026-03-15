@@ -5,8 +5,8 @@ pub(crate) mod ic10;
 pub(crate) mod liveness;
 pub(crate) mod phi;
 
-use crate::cfg::Program;
 use crate::diagnostic::Diagnostic;
+use crate::ir::cfg::Program;
 
 pub use allocator::{AllocationResult, SpillRecord, allocate_function, resolve_parallel_moves};
 pub use calling_convention::{
@@ -14,8 +14,8 @@ pub use calling_convention::{
     find_call_sites, find_live_across_calls,
 };
 pub use emitter::{
-    EmittedCallSite, compute_clobber_sets, emit_function, insert_callee_saves,
-    insert_caller_saves, resolve_labels,
+    EmittedCallSite, compute_clobber_sets, emit_function, insert_callee_saves, insert_caller_saves,
+    resolve_labels,
 };
 pub use ic10::{IC10Function, IC10Instruction, IC10Program, JumpTarget, Operand, Register};
 pub use liveness::{
@@ -154,12 +154,13 @@ mod tests {
     use super::phi::sequence_parallel_copies;
     use super::*;
     use crate::cfg;
+    use crate::ir::cfg::{BlockId, Function, Instruction, Operation, Program, TempId};
+    use crate::ir::resolved::SymbolId;
     use crate::parser::parse;
     use crate::resolve::resolve;
-    use crate::resolved::SymbolId;
     use crate::ssa;
 
-    fn build_ssa(source: &str) -> cfg::Program {
+    fn build_ssa(source: &str) -> Program {
         let (ast, parse_diagnostics) = parse(source);
         let errors: Vec<_> = parse_diagnostics
             .iter()
@@ -173,7 +174,7 @@ mod tests {
         program
     }
 
-    fn get_function_mut<'a>(program: &'a mut cfg::Program, name: &str) -> &'a mut cfg::Function {
+    fn get_function_mut<'a>(program: &'a mut Program, name: &str) -> &'a mut Function {
         program
             .functions
             .iter_mut()
@@ -181,22 +182,22 @@ mod tests {
             .unwrap_or_else(|| panic!("function '{}' not found", name))
     }
 
-    fn count_phis(function: &cfg::Function) -> usize {
+    fn count_phis(function: &Function) -> usize {
         function
             .blocks
             .iter()
             .flat_map(|block| &block.instructions)
-            .filter(|instruction| matches!(instruction, cfg::Instruction::Phi { .. }))
+            .filter(|instruction| matches!(instruction, Instruction::Phi { .. }))
             .count()
     }
 
-    fn collect_copies(function: &cfg::Function) -> Vec<(cfg::BlockId, cfg::TempId, cfg::TempId)> {
+    fn collect_copies(function: &Function) -> Vec<(BlockId, TempId, TempId)> {
         let mut copies = Vec::new();
         for block in &function.blocks {
             for instruction in &block.instructions {
-                if let cfg::Instruction::Assign {
+                if let Instruction::Assign {
                     dest,
-                    operation: cfg::Operation::Copy(source),
+                    operation: Operation::Copy(source),
                 } = instruction
                 {
                     copies.push((block.id, *dest, *source));
@@ -373,13 +374,13 @@ mod tests {
 
     #[test]
     fn parallel_copy_sequencing_no_cycle() {
-        let mut function = cfg::Function {
+        let mut function = Function {
             name: "test".to_string(),
             symbol_id: SymbolId(0),
             parameters: Vec::new(),
             return_type: None,
             blocks: Vec::new(),
-            entry: cfg::BlockId(0),
+            entry: BlockId(0),
             variable_definitions: HashMap::new(),
             variable_temps: HashMap::new(),
             immediate_dominators: HashMap::new(),
@@ -387,26 +388,23 @@ mod tests {
             next_temp: 10,
         };
 
-        let copies = vec![
-            (cfg::TempId(0), cfg::TempId(1)),
-            (cfg::TempId(2), cfg::TempId(3)),
-        ];
+        let copies = vec![(TempId(0), TempId(1)), (TempId(2), TempId(3))];
         let result = sequence_parallel_copies(&copies, &mut function);
         assert_eq!(result.len(), 2);
         let destinations: Vec<_> = result.iter().map(|(d, _)| *d).collect();
-        assert!(destinations.contains(&cfg::TempId(0)));
-        assert!(destinations.contains(&cfg::TempId(2)));
+        assert!(destinations.contains(&TempId(0)));
+        assert!(destinations.contains(&TempId(2)));
     }
 
     #[test]
     fn parallel_copy_sequencing_dependency_chain() {
-        let mut function = cfg::Function {
+        let mut function = Function {
             name: "test".to_string(),
             symbol_id: SymbolId(0),
             parameters: Vec::new(),
             return_type: None,
             blocks: Vec::new(),
-            entry: cfg::BlockId(0),
+            entry: BlockId(0),
             variable_definitions: HashMap::new(),
             variable_temps: HashMap::new(),
             immediate_dominators: HashMap::new(),
@@ -415,29 +413,26 @@ mod tests {
         };
 
         // a <- b, c <- a: must emit c <- a before a <- b
-        let copies = vec![
-            (cfg::TempId(0), cfg::TempId(1)),
-            (cfg::TempId(2), cfg::TempId(0)),
-        ];
+        let copies = vec![(TempId(0), TempId(1)), (TempId(2), TempId(0))];
         let result = sequence_parallel_copies(&copies, &mut function);
         assert_eq!(result.len(), 2);
         let first_dest = result[0].0;
         assert_eq!(
             first_dest,
-            cfg::TempId(2),
+            TempId(2),
             "c <- a must come before a <- b to avoid clobbering a"
         );
     }
 
     #[test]
     fn parallel_copy_sequencing_cycle_uses_temporary() {
-        let mut function = cfg::Function {
+        let mut function = Function {
             name: "test".to_string(),
             symbol_id: SymbolId(0),
             parameters: Vec::new(),
             return_type: None,
             blocks: Vec::new(),
-            entry: cfg::BlockId(0),
+            entry: BlockId(0),
             variable_definitions: HashMap::new(),
             variable_temps: HashMap::new(),
             immediate_dominators: HashMap::new(),
@@ -446,10 +441,7 @@ mod tests {
         };
 
         // a <- b, b <- a: cycle — needs a temp
-        let copies = vec![
-            (cfg::TempId(0), cfg::TempId(1)),
-            (cfg::TempId(1), cfg::TempId(0)),
-        ];
+        let copies = vec![(TempId(0), TempId(1)), (TempId(1), TempId(0))];
         let result = sequence_parallel_copies(&copies, &mut function);
         assert_eq!(
             result.len(),
@@ -462,13 +454,13 @@ mod tests {
 
     #[test]
     fn self_copy_eliminated() {
-        let mut function = cfg::Function {
+        let mut function = Function {
             name: "test".to_string(),
             symbol_id: SymbolId(0),
             parameters: Vec::new(),
             return_type: None,
             blocks: Vec::new(),
-            entry: cfg::BlockId(0),
+            entry: BlockId(0),
             variable_definitions: HashMap::new(),
             variable_temps: HashMap::new(),
             immediate_dominators: HashMap::new(),
@@ -476,7 +468,7 @@ mod tests {
             next_temp: 10,
         };
 
-        let copies = vec![(cfg::TempId(0), cfg::TempId(0))];
+        let copies = vec![(TempId(0), TempId(0))];
         let result = sequence_parallel_copies(&copies, &mut function);
         assert!(result.is_empty(), "self-copies should be eliminated");
     }
@@ -525,7 +517,7 @@ mod tests {
     // Deconstruct phis in `name` and return the resulting LinearMap. The mutable borrow is
     // released when this function returns, so callers can immediately re-borrow `program`
     // immutably to call `compute_live_ranges`.
-    fn prepare_for_live_ranges(program: &mut cfg::Program, name: &str) -> LinearMap {
+    fn prepare_for_live_ranges(program: &mut Program, name: &str) -> LinearMap {
         let index = program
             .functions
             .iter()
@@ -694,9 +686,9 @@ mod tests {
 
     // Helper: run all pre-live-range setup and return (linear_map, live_ranges).
     fn prepare_for_calling_convention(
-        program: &mut cfg::Program,
+        program: &mut Program,
         name: &str,
-    ) -> (LinearMap, HashMap<cfg::TempId, LiveRange>) {
+    ) -> (LinearMap, HashMap<TempId, LiveRange>) {
         let index = program
             .functions
             .iter()
@@ -891,7 +883,7 @@ mod tests {
         let sites = find_call_sites(function, &linear_map);
         assert_eq!(sites.len(), 1);
         let site = sites[0];
-        let live_across: Vec<cfg::TempId> = live_ranges
+        let live_across: Vec<TempId> = live_ranges
             .iter()
             .filter(|(_, range)| range.start() < site && range.end() > site)
             .map(|(&t, _)| t)
@@ -904,13 +896,9 @@ mod tests {
     }
 
     fn prepare_for_allocation(
-        program: &mut cfg::Program,
+        program: &mut Program,
         name: &str,
-    ) -> (
-        LinearMap,
-        HashMap<cfg::TempId, LiveRange>,
-        CallingConventionInfo,
-    ) {
+    ) -> (LinearMap, HashMap<TempId, LiveRange>, CallingConventionInfo) {
         let index = program
             .functions
             .iter()
@@ -926,7 +914,7 @@ mod tests {
         (linear_map, live_ranges, calling_convention)
     }
 
-    fn run_allocation(source: &str, function_name: &str) -> (cfg::Program, AllocationResult) {
+    fn run_allocation(source: &str, function_name: &str) -> (Program, AllocationResult) {
         let mut program = build_ssa(source);
         let (linear_map, live_ranges, calling_convention) =
             prepare_for_allocation(&mut program, function_name);
@@ -1128,7 +1116,7 @@ mod tests {
             // Exclude temps whose range starts exactly at `pos`: those are destinations being
             // defined at this instruction and can legally share a register with a source whose
             // range ends at `pos` (read-before-write within the same IC10 instruction).
-            let live_at_position: Vec<(cfg::TempId, Register)> = result
+            let live_at_position: Vec<(TempId, Register)> = result
                 .assignments
                 .iter()
                 .filter(|(temp, _)| {
@@ -1790,11 +1778,7 @@ mod tests {
         let (linear_map, live_ranges, calling_convention) =
             prepare_for_allocation(&mut program, "leaf");
         assert_eq!(calling_convention.function_class, FunctionClass::Leaf);
-        let function = program
-            .functions
-            .iter()
-            .find(|f| f.name == "leaf")
-            .unwrap();
+        let function = program.functions.iter().find(|f| f.name == "leaf").unwrap();
         let result =
             allocate_function(function, &linear_map, &live_ranges, &calling_convention).unwrap();
         for &register in result.assignments.values() {

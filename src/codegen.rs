@@ -1,7 +1,7 @@
 use std::fmt;
 
-use crate::ast::{BatchMode, DevicePin};
 use crate::diagnostic::{Diagnostic, Span};
+use crate::ir::{BatchMode, DevicePin};
 use crate::regalloc::{IC10Instruction, IC10Program, JumpTarget, Operand, Register};
 
 impl fmt::Display for Register {

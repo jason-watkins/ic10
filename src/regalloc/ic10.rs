@@ -1,4 +1,4 @@
-use crate::ast::{BatchMode, DevicePin};
+use crate::ir::{BatchMode, DevicePin};
 
 /// A physical IC10 general-purpose or special register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

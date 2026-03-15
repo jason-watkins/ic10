@@ -1,5 +1,6 @@
-use crate::ast::{BatchMode, BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
 use crate::diagnostic::Span;
+
+use super::shared::{BatchMode, BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
 
 /// An opaque index into a `SymbolTable`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

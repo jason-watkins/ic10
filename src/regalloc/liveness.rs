@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::cfg::{BlockId, Function, Instruction, Operation, TempId, Terminator};
+use crate::ir::cfg::{BlockId, Function, Instruction, Operation, TempId, Terminator};
 
 /// A sequential position in the linearized instruction sequence.
 ///

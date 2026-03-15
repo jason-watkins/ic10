@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::cfg::{
+use crate::ir::cfg::{
     BasicBlock, BlockId, Function, Instruction, Operation, Program, TempId, Terminator,
 };
-use crate::resolved::SymbolId;
+use crate::ir::resolved::SymbolId;
 
 /// Convert all functions in a CFG program to pruned SSA form.
 pub fn construct_program(program: &mut Program) {
@@ -553,6 +553,7 @@ fn rename_terminator_operands(
 mod tests {
     use super::*;
     use crate::cfg;
+    use crate::ir::cfg::{BlockId, Function, Instruction, Program, TempId};
     use crate::parser::parse;
     use crate::resolve::resolve;
 

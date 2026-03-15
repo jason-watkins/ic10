@@ -1,20 +1,20 @@
 use std::collections::HashMap;
 
-use crate::ast::DevicePin;
-use crate::ast::{
-    AssignmentTarget as AstAssignmentTarget, BinaryOperator, Block as AstBlock, BuiltinFunction,
-    ElseClause as AstElseClause, Expression as AstExpression, ExpressionKind as AstExpressionKind,
-    FunctionDeclaration as AstFunctionDeclaration, IfStatement as AstIfStatement, Item,
-    LiteralKind, Program as AstProgram, Statement as AstStatement, Type, UnaryOperator,
-};
 use crate::crc32::crc32;
 use crate::diagnostic::{Diagnostic, Severity, Span};
-use crate::resolved::{
+use crate::ir::ast::{
+    AssignmentTarget as AstAssignmentTarget, Block as AstBlock, ElseClause as AstElseClause,
+    Expression as AstExpression, ExpressionKind as AstExpressionKind,
+    FunctionDeclaration as AstFunctionDeclaration, IfStatement as AstIfStatement, Item,
+    LiteralKind, Program as AstProgram, Statement as AstStatement,
+};
+use crate::ir::resolved::{
     AssignStatement, AssignmentTarget, Block, ElseClause, Expression, ExpressionKind,
     ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement, LetStatement, Parameter,
     Program, ReturnStatement, SleepStatement, Statement, SymbolId, SymbolInfo, SymbolKind,
     SymbolTable, WhileStatement,
 };
+use crate::ir::{BinaryOperator, BuiltinFunction, DevicePin, Type, UnaryOperator};
 
 /// An entry in the scope stack.
 #[derive(Clone)]
@@ -800,7 +800,7 @@ impl Resolver {
                             pin,
                             field: field.clone(),
                         },
-                        ty: crate::ast::Type::F64,
+                        ty: crate::ir::Type::F64,
                         span: expr.span,
                     }
                 }
@@ -1209,12 +1209,12 @@ pub fn resolve(program: &AstProgram) -> Result<(Program, Vec<Diagnostic>), Vec<D
 #[cfg(test)]
 mod tests {
     use super::resolve;
-    use crate::ast::Type;
     use crate::crc32::crc32;
     use crate::diagnostic::Diagnostic;
+    use crate::ir::Type;
+    use crate::ir::resolved::Program;
+    use crate::ir::resolved::{ExpressionKind, Statement, SymbolKind};
     use crate::parser::parse;
-    use crate::resolved::Program;
-    use crate::resolved::{ExpressionKind, Statement, SymbolKind};
 
     fn resolve_ok(source: &str) -> Program {
         let (ast, parse_diagnostics) = parse(source);
@@ -1323,7 +1323,7 @@ mod tests {
 
     #[test]
     fn device_read_resolves_to_pin() {
-        use crate::ast::DevicePin;
+        use crate::ir::DevicePin;
         let program = resolve_ok("device sensor: d0; fn main() { let t = sensor.Temperature; }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
@@ -1388,7 +1388,7 @@ mod tests {
     // 4.9 — device assignment target
     #[test]
     fn device_field_write_resolves() {
-        use crate::resolved::AssignmentTarget;
+        use crate::ir::resolved::AssignmentTarget;
         let program = resolve_ok("device heater: d1; fn main() { heater.On = 1.0; }");
         let Statement::Assign(s) = &program.functions[0].body.statements[0] else {
             panic!("expected assign");

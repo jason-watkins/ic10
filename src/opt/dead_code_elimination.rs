@@ -1,8 +1,10 @@
 use std::collections::{HashSet, VecDeque};
 
-use crate::cfg::{Function, TempId};
+use crate::ir::cfg::{Function, TempId};
 
-use super::utilities::{build_def_map, has_side_effects, instruction_dest, instruction_uses, terminator_uses};
+use super::utilities::{
+    build_def_map, has_side_effects, instruction_dest, instruction_uses, terminator_uses,
+};
 
 pub(super) fn dead_code_elimination(function: &mut Function) -> bool {
     let def_map = build_def_map(function);

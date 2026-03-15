@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::cfg::{Function, TempId};
 use crate::diagnostic::{Diagnostic, Span};
+use crate::ir::cfg::{Function, TempId};
 
 use super::calling_convention::{CallingConventionInfo, FunctionClass};
 use super::ic10::Register;
@@ -39,8 +39,7 @@ struct RegisterPool {
 const LEAF_PREFERENCE: [usize; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 /// Non-leaf functions prefer r8–r15 (callee-saved), then r0–r7.
-const NON_LEAF_PREFERENCE: [usize; 16] =
-    [8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7];
+const NON_LEAF_PREFERENCE: [usize; 16] = [8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7];
 
 impl RegisterPool {
     fn new(function_class: FunctionClass) -> Self {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use crate::cfg::{BlockId, Function, Instruction, Operation, Terminator};
+use crate::ir::cfg::{BlockId, Function, Instruction, Operation, Terminator};
 
 /// Deduplicate structurally identical blocks within a function.
 ///
@@ -115,13 +115,13 @@ pub(super) fn deduplicate_blocks(function: &mut Function) -> bool {
 /// `TempId`s are renumbered sequentially (first appearance = 0, second = 1, …)
 /// so that two blocks with identical structure but different concrete `TempId`s
 /// produce the same string.
-fn canonicalize_block(block: &crate::cfg::BasicBlock) -> String {
-    let mut mapping: HashMap<crate::cfg::TempId, usize> = HashMap::new();
+fn canonicalize_block(block: &crate::ir::cfg::BasicBlock) -> String {
+    let mut mapping: HashMap<crate::ir::cfg::TempId, usize> = HashMap::new();
     let mut next_index = 0usize;
     let mut output = String::new();
 
-    let mut map = |temp: crate::cfg::TempId,
-                   mapping: &mut HashMap<crate::cfg::TempId, usize>,
+    let mut map = |temp: crate::ir::cfg::TempId,
+                   mapping: &mut HashMap<crate::ir::cfg::TempId, usize>,
                    next: &mut usize|
      -> usize {
         *mapping.entry(temp).or_insert_with(|| {
@@ -154,11 +154,11 @@ fn canonicalize_block(block: &crate::cfg::BasicBlock) -> String {
 
 fn canonicalize_instruction(
     instruction: &Instruction,
-    mapping: &mut HashMap<crate::cfg::TempId, usize>,
+    mapping: &mut HashMap<crate::ir::cfg::TempId, usize>,
     next_index: &mut usize,
     map: &mut impl FnMut(
-        crate::cfg::TempId,
-        &mut HashMap<crate::cfg::TempId, usize>,
+        crate::ir::cfg::TempId,
+        &mut HashMap<crate::ir::cfg::TempId, usize>,
         &mut usize,
     ) -> usize,
     output: &mut String,
@@ -271,11 +271,11 @@ fn canonicalize_instruction(
 
 fn canonicalize_operation(
     operation: &Operation,
-    mapping: &mut HashMap<crate::cfg::TempId, usize>,
+    mapping: &mut HashMap<crate::ir::cfg::TempId, usize>,
     next_index: &mut usize,
     map: &mut impl FnMut(
-        crate::cfg::TempId,
-        &mut HashMap<crate::cfg::TempId, usize>,
+        crate::ir::cfg::TempId,
+        &mut HashMap<crate::ir::cfg::TempId, usize>,
         &mut usize,
     ) -> usize,
     output: &mut String,
@@ -339,11 +339,11 @@ fn canonicalize_operation(
 
 fn canonicalize_terminator(
     terminator: &Terminator,
-    mapping: &mut HashMap<crate::cfg::TempId, usize>,
+    mapping: &mut HashMap<crate::ir::cfg::TempId, usize>,
     next_index: &mut usize,
     map: &mut impl FnMut(
-        crate::cfg::TempId,
-        &mut HashMap<crate::cfg::TempId, usize>,
+        crate::ir::cfg::TempId,
+        &mut HashMap<crate::ir::cfg::TempId, usize>,
         &mut usize,
     ) -> usize,
     output: &mut String,

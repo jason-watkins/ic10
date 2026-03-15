@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::cfg::{Function, Instruction, Operation, TempId, Terminator};
+use crate::ir::cfg::{Function, Instruction, Operation, TempId, Terminator};
 
 pub(super) fn instruction_dest(instruction: &Instruction) -> Option<TempId> {
     match instruction {

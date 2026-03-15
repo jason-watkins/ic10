@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{BinaryOperator, BuiltinFunction, Type, UnaryOperator};
-use crate::cfg::{
+use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator,
 };
-use crate::resolved::SymbolTable;
+use crate::ir::resolved::SymbolTable;
+use crate::ir::{BinaryOperator, BuiltinFunction, Type, UnaryOperator};
 
 use super::allocator::{AllocationResult, SpillRecord};
 use super::calling_convention::{CallingConventionInfo, FunctionClass};
@@ -591,7 +591,7 @@ impl<'a> Emitter<'a> {
     fn lower_call(
         &mut self,
         dest: Option<TempId>,
-        function_symbol: crate::resolved::SymbolId,
+        function_symbol: crate::ir::resolved::SymbolId,
         args: &[TempId],
         position: LinearPosition,
     ) {

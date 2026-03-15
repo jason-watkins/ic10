@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::cfg::{BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator};
+use crate::ir::cfg::{
+    BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator,
+};
 
 /// Eliminate all phi instructions in `function` by inserting explicit copy instructions
 /// at the end of predecessor blocks.

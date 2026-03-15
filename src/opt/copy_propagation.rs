@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::cfg::{BlockId, Function, Instruction, Operation, TempId};
+use crate::ir::cfg::{BlockId, Function, Instruction, Operation, TempId};
 
 use super::utilities::{apply_substitutions, instruction_dest, resolve_substitution_chains};
 

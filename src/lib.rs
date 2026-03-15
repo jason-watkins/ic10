@@ -1,12 +1,11 @@
-pub mod ast;
 pub mod cfg;
 pub mod codegen;
 pub mod crc32;
 pub mod diagnostic;
+pub mod ir;
 pub mod lexer;
 pub mod opt;
 pub mod parser;
 pub mod regalloc;
 pub mod resolve;
-pub mod resolved;
 pub mod ssa;

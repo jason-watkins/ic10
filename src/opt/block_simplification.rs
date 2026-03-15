@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::cfg::{BlockId, Function, Instruction, Terminator};
+use crate::ir::cfg::{BlockId, Function, Instruction, Terminator};
 
 pub(super) fn remove_unreachable_blocks(function: &mut Function) -> bool {
     let reachable = compute_reachable(function);

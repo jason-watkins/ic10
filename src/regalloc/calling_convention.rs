@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::cfg::{Function, Instruction, TempId, Terminator};
+use crate::ir::cfg::{Function, Instruction, TempId, Terminator};
 
 use super::ic10::Register;
 use super::liveness::{LinearMap, LinearPosition, LiveRange};

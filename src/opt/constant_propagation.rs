@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::ast::{BinaryOperator, BuiltinFunction, Type, UnaryOperator};
-use crate::cfg::{BlockId, Function, Instruction, Operation, TempId, Terminator};
+use crate::ir::cfg::{BlockId, Function, Instruction, Operation, TempId, Terminator};
+use crate::ir::{BinaryOperator, BuiltinFunction, Type, UnaryOperator};
 
 use super::utilities::instruction_dest;
 

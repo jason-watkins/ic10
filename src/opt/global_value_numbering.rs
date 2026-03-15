@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::ast::{BinaryOperator, Type, UnaryOperator};
-use crate::cfg::{Function, Instruction, Operation, TempId};
+use crate::ir::cfg::{Function, Instruction, Operation, TempId};
+use crate::ir::{BinaryOperator, Type, UnaryOperator};
 
 use super::utilities::apply_substitutions;
 
