@@ -8,6 +8,7 @@ enum ComparisonKind {
     GreaterEqual,
     LessThan,
     LessEqual,
+    IsNaN,
 }
 
 struct Comparison {
@@ -91,6 +92,12 @@ fn extract_comparison(instruction: &IC10Instruction) -> Option<Comparison> {
             left: operand.clone(),
             right: None,
         }),
+        IC10Instruction::Snan(dest, operand) => Some(Comparison {
+            destination: *dest,
+            kind: ComparisonKind::IsNaN,
+            left: operand.clone(),
+            right: None,
+        }),
         _ => None,
     }
 }
@@ -103,6 +110,9 @@ fn invert(kind: ComparisonKind) -> ComparisonKind {
         ComparisonKind::LessEqual => ComparisonKind::GreaterThan,
         ComparisonKind::LessThan => ComparisonKind::GreaterEqual,
         ComparisonKind::GreaterEqual => ComparisonKind::LessThan,
+        ComparisonKind::IsNaN => unreachable!(
+            "snan has no bnanz counterpart; the invert_negated_branches pass eliminates this pattern"
+        ),
     }
 }
 
@@ -137,6 +147,8 @@ fn build_fused_branch(
             IC10Instruction::BranchLessEqual(left, right, target)
         }
         (ComparisonKind::LessEqual, None) => IC10Instruction::BranchLessEqualZero(left, target),
+        (ComparisonKind::IsNaN, None) => IC10Instruction::BranchNaN(left, target),
+        (ComparisonKind::IsNaN, Some(_)) => unreachable!("snan takes exactly one operand"),
     }
 }
 
@@ -227,6 +239,13 @@ fn try_fuse(
 
     let (is_nonzero, target) =
         extract_branch_on_register(&instructions[scan], &comparison.destination)?;
+
+    // IC10 has no `bnanz` instruction, so `snan + beqz` cannot be fused.
+    // The invert_negated_branches CFG pass ensures this pattern does not arise
+    // at any optimization level where branch_fusion runs.
+    if !is_nonzero && matches!(comparison.kind, ComparisonKind::IsNaN) {
+        return None;
+    }
 
     let kind = if is_nonzero {
         comparison.kind

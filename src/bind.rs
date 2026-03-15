@@ -778,7 +778,7 @@ impl Binder {
                 }
                 Expression {
                     kind: ExpressionKind::IntrinsicCall(*intrinsic, bound_args),
-                    ty: Type::F64,
+                    ty: intrinsic_return_type(*intrinsic),
                     span: expr.span,
                 }
             }
@@ -1142,11 +1142,18 @@ fn eval_binary_const(
     })
 }
 
+fn intrinsic_return_type(intrinsic: Intrinsic) -> Type {
+    match intrinsic {
+        Intrinsic::IsNan => Type::Bool,
+        _ => Type::F64,
+    }
+}
+
 fn intrinsic_param_count(intrinsic: Intrinsic) -> usize {
     use Intrinsic::*;
     match intrinsic {
         Abs | Ceil | Floor | Round | Trunc | Sqrt | Exp | Log | Sin | Cos | Tan | Asin | Acos
-        | Atan | Rand => 1,
+        | Atan | Rand | IsNan => 1,
         Atan2 | Pow | Min | Max => 2,
         Lerp | Clamp => 3,
     }

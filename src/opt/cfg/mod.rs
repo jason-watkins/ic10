@@ -8,7 +8,7 @@ mod inline;
 mod utilities;
 
 use block_deduplication::deduplicate_blocks;
-use block_simplification::{coalesce_blocks, merge_empty_blocks, remove_unreachable_blocks};
+use block_simplification::{coalesce_blocks, invert_negated_branches, merge_empty_blocks, remove_unreachable_blocks};
 use constant_propagation::constant_propagation;
 use copy_propagation::copy_propagation;
 use dead_code_elimination::dead_code_elimination;
@@ -52,6 +52,7 @@ fn optimize_single_pass(function: &mut Function, features: &Features) {
         remove_unreachable_blocks(function);
         coalesce_blocks(function);
         merge_empty_blocks(function);
+        invert_negated_branches(function);
     }
     if features.block_deduplication {
         deduplicate_blocks(function);
@@ -78,6 +79,7 @@ fn optimize_to_fixpoint(function: &mut Function, features: &Features) {
             changed |= remove_unreachable_blocks(function);
             changed |= coalesce_blocks(function);
             changed |= merge_empty_blocks(function);
+            changed |= invert_negated_branches(function);
         }
         if features.block_deduplication {
             changed |= deduplicate_blocks(function);

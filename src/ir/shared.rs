@@ -92,6 +92,7 @@ pub enum Intrinsic {
     Lerp,
     Clamp,
     Rand,
+    IsNan,
 }
 
 /// Batch operation mode (§8.5.3).

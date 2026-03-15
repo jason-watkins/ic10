@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
-use crate::ir::cfg::{BlockId, Function, Instruction, Terminator};
+use crate::ir::UnaryOperator;
+use crate::ir::cfg::{BlockId, Function, Instruction, Operation, Terminator};
 
 pub(super) fn remove_unreachable_blocks(function: &mut Function) -> bool {
     let reachable = compute_reachable(function);
@@ -239,4 +240,72 @@ fn replace_jump_target(terminator: &mut Terminator, old: BlockId, new: BlockId) 
         }
         Terminator::Return(_) | Terminator::None | Terminator::Jump(_) => {}
     }
+}
+
+/// Rewrite `Branch { condition: ¬t, true_block: A, false_block: B }` to
+/// `Branch { condition: t, true_block: B, false_block: A }`.
+///
+/// Swapping the successor edges and using the un-negated condition eliminates
+/// the `seqz` (logical-NOT) instruction from the critical path, leaving the
+/// condition temp free for downstream fusion (e.g. `snan + bnez → bnan`).
+/// The original `Not` instruction is left in place; dead-code elimination
+/// removes it when it is no longer used.
+pub(super) fn invert_negated_branches(function: &mut Function) -> bool {
+    use super::utilities::build_def_map;
+    use std::collections::HashMap;
+
+    let def_map = build_def_map(function);
+    let mut rewrites: HashMap<usize, (usize, usize)> = HashMap::new();
+
+    for (block_index, block) in function.blocks.iter().enumerate() {
+        if let Terminator::Branch { condition, .. } = &block.terminator
+            && let Some(&(def_block, def_instr)) = def_map.get(condition)
+        {
+            let defining_instruction = &function.blocks[def_block].instructions[def_instr];
+            if let Instruction::Assign {
+                operation:
+                    Operation::Unary {
+                        operator: UnaryOperator::Not,
+                        ..
+                    },
+                ..
+            } = defining_instruction
+            {
+                rewrites.insert(block_index, (def_block, def_instr));
+            }
+        }
+    }
+
+    if rewrites.is_empty() {
+        return false;
+    }
+
+    for (block_index, (def_block, def_instr)) in rewrites {
+        let inner_operand = if let Instruction::Assign {
+            operation: Operation::Unary { operand, .. },
+            ..
+        } = &function.blocks[def_block].instructions[def_instr]
+        {
+            *operand
+        } else {
+            unreachable!()
+        };
+
+        if let Terminator::Branch {
+            condition,
+            true_block,
+            false_block,
+        } = &mut function.blocks[block_index].terminator
+        {
+            *condition = inner_operand;
+            std::mem::swap(true_block, false_block);
+        }
+
+        // Keep the successors list in sync: it is ordered [true_block, false_block] by
+        // construction and is used for reverse-postorder traversal, which determines the
+        // physical block layout and therefore which branch direction can be a fall-through.
+        function.blocks[block_index].successors.reverse();
+    }
+
+    true
 }

@@ -1041,6 +1041,7 @@ fn name_to_intrinsic(name: &str) -> Option<Intrinsic> {
         "lerp" => Some(Intrinsic::Lerp),
         "clamp" => Some(Intrinsic::Clamp),
         "rand" => Some(Intrinsic::Rand),
+        "is_nan" => Some(Intrinsic::IsNan),
         _ => None,
     }
 }

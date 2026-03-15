@@ -333,6 +333,7 @@ fn try_fold_intrinsic(intrinsic: Intrinsic, args: &[f64]) -> Option<f64> {
         Intrinsic::Max if args.len() == 2 => Some(args[0].max(args[1])),
         Intrinsic::Lerp if args.len() == 3 => Some(args[0] + (args[1] - args[0]) * args[2]),
         Intrinsic::Clamp if args.len() == 3 => Some(args[0].max(args[1]).min(args[2])),
+        Intrinsic::IsNan if args.len() == 1 => Some(if args[0].is_nan() { 1.0 } else { 0.0 }),
         _ => None,
     }
 }

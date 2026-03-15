@@ -1,10 +1,10 @@
+use ic20::bind;
 use ic20::cfg;
 use ic20::codegen;
 use ic20::diagnostic::Severity;
 use ic20::opt::{self, OptLevel};
 use ic20::parser;
 use ic20::regalloc;
-use ic20::bind;
 use ic20::ssa;
 
 fn compile(source: &str) -> Result<String, String> {
@@ -17,8 +17,8 @@ fn compile(source: &str) -> Result<String, String> {
         return Err(format!("parse errors: {errors:#?}"));
     }
 
-    let (bound, _) = bind::bind(&ast)
-        .map_err(|diagnostics| format!("bind errors: {diagnostics:#?}"))?;
+    let (bound, _) =
+        bind::bind(&ast).map_err(|diagnostics| format!("bind errors: {diagnostics:#?}"))?;
 
     let (mut program, cfg_diagnostics) = cfg::build(&bound);
     let cfg_errors: Vec<_> = cfg_diagnostics
@@ -202,4 +202,80 @@ fn for_loop() {
     )
     .unwrap();
     assert!(!output.is_empty(), "expected non-empty output");
+}
+
+#[test]
+fn is_nan_compiles_to_snan() {
+    let output = compile(
+        r#"
+        device sensor: d0;
+        device out: d1;
+        fn main() {
+            let x: f64 = sensor.Value;
+            let result: bool = is_nan(x);
+            out.Setting = result;
+        }
+        "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("snan"),
+        "expected snan instruction: {output}"
+    );
+}
+
+#[test]
+fn is_nan_branch_fuses_to_bnan() {
+    let output = compile(
+        r#"
+        device sensor: d0;
+        device out: d1;
+        fn main() {
+            let x: f64 = sensor.Value;
+            if is_nan(x) {
+                out.Setting = 1.0;
+            } else {
+                out.Setting = 0.0;
+            }
+        }
+        "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("bnan"),
+        "expected bnan instruction: {output}"
+    );
+    assert!(
+        !output.contains("snan"),
+        "snan should be fused away: {output}"
+    );
+}
+
+#[test]
+fn not_is_nan_branch_fuses_to_bnan_with_swapped_blocks() {
+    let output = compile(
+        r#"
+        device sensor: d0;
+        device out: d1;
+        fn main() {
+            let x: f64 = sensor.Value;
+            if !is_nan(x) {
+                out.Setting = 0.0;
+            } else {
+                out.Setting = 1.0;
+            }
+        }
+        "#,
+    )
+    .unwrap();
+    let expected = r#"l r0 d0 Value
+bnan r0 4
+s d1 Setting 0
+j 5
+s d1 Setting 1
+hcf"#;
+    assert_eq!(
+        output, expected,
+        "expected bnan with swapped blocks: {output}"
+    );
 }

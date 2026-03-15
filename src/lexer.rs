@@ -50,7 +50,6 @@ pub enum Reserved {
     Unsafe,
     Where,
     Pin,
-    IsNan,
     BatchReadNamed,
     BatchWriteNamed,
     BatchReadSlot,
@@ -166,7 +165,6 @@ fn keyword(s: &str) -> Option<TokenKind> {
         "unsafe" => Some(TokenKind::Reserved(Reserved::Unsafe)),
         "where" => Some(TokenKind::Reserved(Reserved::Where)),
         "pin" => Some(TokenKind::Reserved(Reserved::Pin)),
-        "is_nan" => Some(TokenKind::Reserved(Reserved::IsNan)),
         "batch_read_named" => Some(TokenKind::Reserved(Reserved::BatchReadNamed)),
         "batch_write_named" => Some(TokenKind::Reserved(Reserved::BatchWriteNamed)),
         "batch_read_slot" => Some(TokenKind::Reserved(Reserved::BatchReadSlot)),
@@ -676,9 +674,7 @@ mod tests {
     #[test]
     fn all_reserved_keywords() {
         assert_eq!(
-            kinds(
-                "enum extern match pub ref static struct super trait type unsafe where pin is_nan"
-            ),
+            kinds("enum extern match pub ref static struct super trait type unsafe where pin"),
             vec![
                 TokenKind::Reserved(Reserved::Enum),
                 TokenKind::Reserved(Reserved::Extern),
@@ -693,8 +689,15 @@ mod tests {
                 TokenKind::Reserved(Reserved::Unsafe),
                 TokenKind::Reserved(Reserved::Where),
                 TokenKind::Reserved(Reserved::Pin),
-                TokenKind::Reserved(Reserved::IsNan),
             ],
+        );
+    }
+
+    #[test]
+    fn is_nan_tokenizes_as_identifier() {
+        assert_eq!(
+            kinds("is_nan"),
+            vec![TokenKind::Identifier("is_nan".to_string())],
         );
     }
 

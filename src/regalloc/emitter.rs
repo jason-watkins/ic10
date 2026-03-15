@@ -535,6 +535,7 @@ impl<'a> Emitter<'a> {
                 )
             }
             Intrinsic::Rand => IC10Instruction::Rand(dest_register),
+            Intrinsic::IsNan => IC10Instruction::Snan(dest_register, self.operand_of(args[0])),
         };
         self.emit(instruction);
     }
@@ -776,11 +777,107 @@ fn rewrite_jump_targets(
         IC10Instruction::BranchDeviceNotSet(pin, target) => {
             IC10Instruction::BranchDeviceNotSet(pin, resolve_target(target, labels))
         }
+        IC10Instruction::BranchDeviceSetAndLink(pin, target) => {
+            IC10Instruction::BranchDeviceSetAndLink(pin, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchDeviceNotSetAndLink(pin, target) => {
+            IC10Instruction::BranchDeviceNotSetAndLink(pin, resolve_target(target, labels))
+        }
         IC10Instruction::BranchDeviceNotValidLoad(pin, field, target) => {
             IC10Instruction::BranchDeviceNotValidLoad(pin, field, resolve_target(target, labels))
         }
         IC10Instruction::BranchDeviceNotValidStore(pin, field, target) => {
             IC10Instruction::BranchDeviceNotValidStore(pin, field, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchApproximateEqual { left, right, epsilon, target } => {
+            IC10Instruction::BranchApproximateEqual {
+                left,
+                right,
+                epsilon,
+                target: resolve_target(target, labels),
+            }
+        }
+        IC10Instruction::BranchApproximateZero { value, epsilon, target } => {
+            IC10Instruction::BranchApproximateZero {
+                value,
+                epsilon,
+                target: resolve_target(target, labels),
+            }
+        }
+        IC10Instruction::BranchNotApproximateEqual { left, right, epsilon, target } => {
+            IC10Instruction::BranchNotApproximateEqual {
+                left,
+                right,
+                epsilon,
+                target: resolve_target(target, labels),
+            }
+        }
+        IC10Instruction::BranchNotApproximateZero { value, epsilon, target } => {
+            IC10Instruction::BranchNotApproximateZero {
+                value,
+                epsilon,
+                target: resolve_target(target, labels),
+            }
+        }
+        IC10Instruction::BranchNaN(a, target) => {
+            IC10Instruction::BranchNaN(a, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchEqualAndLink(a, b, target) => {
+            IC10Instruction::BranchEqualAndLink(a, b, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchEqualZeroAndLink(a, target) => {
+            IC10Instruction::BranchEqualZeroAndLink(a, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchNotEqualAndLink(a, b, target) => {
+            IC10Instruction::BranchNotEqualAndLink(a, b, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchNotEqualZeroAndLink(a, target) => {
+            IC10Instruction::BranchNotEqualZeroAndLink(a, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchGreaterThanAndLink(a, b, target) => {
+            IC10Instruction::BranchGreaterThanAndLink(a, b, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchGreaterThanZeroAndLink(a, target) => {
+            IC10Instruction::BranchGreaterThanZeroAndLink(a, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchGreaterEqualAndLink(a, b, target) => {
+            IC10Instruction::BranchGreaterEqualAndLink(a, b, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchGreaterEqualZeroAndLink(a, target) => {
+            IC10Instruction::BranchGreaterEqualZeroAndLink(a, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchLessThanAndLink(a, b, target) => {
+            IC10Instruction::BranchLessThanAndLink(a, b, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchLessThanZeroAndLink(a, target) => {
+            IC10Instruction::BranchLessThanZeroAndLink(a, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchLessEqualAndLink(a, b, target) => {
+            IC10Instruction::BranchLessEqualAndLink(a, b, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchLessEqualZeroAndLink(a, target) => {
+            IC10Instruction::BranchLessEqualZeroAndLink(a, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchApproximateEqualAndLink(a, b, c, target) => {
+            IC10Instruction::BranchApproximateEqualAndLink(a, b, c, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchApproximateZeroAndLink(a, b, target) => {
+            IC10Instruction::BranchApproximateZeroAndLink(a, b, resolve_target(target, labels))
+        }
+        IC10Instruction::BranchNotApproximateEqualAndLink(a, b, c, target) => {
+            IC10Instruction::BranchNotApproximateEqualAndLink(
+                a,
+                b,
+                c,
+                resolve_target(target, labels),
+            )
+        }
+        IC10Instruction::BranchNotApproximateZeroAndLink(a, b, target) => {
+            IC10Instruction::BranchNotApproximateZeroAndLink(
+                a,
+                b,
+                resolve_target(target, labels),
+            )
         }
         other => other,
     }
