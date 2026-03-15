@@ -6,7 +6,7 @@ use super::shared::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, Unary
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymbolId(pub usize);
 
-/// The resolved, type-annotated program — output of the resolve pass.
+/// The bound, type-annotated program — output of the bind pass.
 #[derive(Debug, Clone)]
 pub struct Program {
     pub functions: Vec<FunctionDeclaration>,

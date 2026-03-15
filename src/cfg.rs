@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use crate::diagnostic::{Diagnostic, Span};
+use crate::ir::bound::{
+    self, AssignmentTarget, ElseClause, ExpressionKind, Program as BoundProgram, Statement,
+    SymbolId,
+};
 use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, Program, TempId, Terminator,
-};
-use crate::ir::resolved::{
-    self, AssignmentTarget, ElseClause, ExpressionKind, Program as ResolvedProgram, Statement,
-    SymbolId,
 };
 use crate::ir::{BinaryOperator, Type};
 
@@ -16,7 +16,7 @@ struct LoopContext {
     break_target: BlockId,
 }
 
-/// Builds a CFG `Function` from a `resolved::FunctionDeclaration`.
+/// Builds a CFG `Function` from a `bound::FunctionDeclaration`.
 struct Builder {
     blocks: Vec<BasicBlock>,
     next_temp: usize,
@@ -118,7 +118,7 @@ impl Builder {
             .push((temp, self.current_block));
     }
 
-    fn lower_expression(&mut self, expression: &resolved::Expression) -> TempId {
+    fn lower_expression(&mut self, expression: &bound::Expression) -> TempId {
         match &expression.kind {
             ExpressionKind::Literal(value) => {
                 let dest = self.fresh_temp();
@@ -195,10 +195,10 @@ impl Builder {
                     args: arg_temps,
                 });
                 // `lower_expression` is only called on a Call node when the call appears
-                // as a sub-expression (argument, RHS, etc.). The resolver rejects any use
+                // as a sub-expression (argument, RHS, etc.). The binder rejects any use
                 // of a unit-returning call as a value, so `dest` is always `Some` here.
                 dest.expect(
-                    "unit-returning call reached lower_expression; resolver invariant violated",
+                    "unit-returning call reached lower_expression; binder invariant violated",
                 )
             }
 
@@ -388,7 +388,7 @@ impl Builder {
         }
     }
 
-    fn lower_expression_statement(&mut self, statement: &resolved::ExpressionStatement) {
+    fn lower_expression_statement(&mut self, statement: &bound::ExpressionStatement) {
         match &statement.expression.kind {
             ExpressionKind::Call(function_symbol, args) => {
                 let arg_temps: Vec<TempId> =
@@ -420,7 +420,7 @@ impl Builder {
         }
     }
 
-    fn lower_if(&mut self, if_statement: &resolved::IfStatement) {
+    fn lower_if(&mut self, if_statement: &bound::IfStatement) {
         let condition_temp = self.lower_expression(&if_statement.condition);
 
         self.next_if_index += 1;
@@ -470,7 +470,7 @@ impl Builder {
     ///
     /// If the condition is a literal `true`, emit an unconditional
     /// back-edge instead of a conditional branch
-    fn lower_while(&mut self, while_statement: &resolved::WhileStatement) {
+    fn lower_while(&mut self, while_statement: &bound::WhileStatement) {
         let is_infinite = matches!(
             while_statement.condition.kind,
             ExpressionKind::Literal(v) if v == 1.0
@@ -526,7 +526,7 @@ impl Builder {
     ///     add r_i r_i 1
     ///     j for_check
     ///   for_end:
-    fn lower_for(&mut self, for_statement: &resolved::ForStatement) {
+    fn lower_for(&mut self, for_statement: &bound::ForStatement) {
         let lower_temp = self.lower_expression(&for_statement.lower);
         let upper_temp = self.lower_expression(&for_statement.upper);
 
@@ -599,7 +599,7 @@ impl Builder {
         self.switch_to(exit_block);
     }
 
-    fn lower_block(&mut self, block: &resolved::Block) {
+    fn lower_block(&mut self, block: &bound::Block) {
         for statement in &block.statements {
             self.lower_statement(statement);
         }
@@ -614,9 +614,9 @@ impl Builder {
     }
 }
 
-/// Lower a single `resolved::FunctionDeclaration` into a `cfg::Function`.
+/// Lower a single `bound::FunctionDeclaration` into a `cfg::Function`.
 fn lower_function(
-    function: &resolved::FunctionDeclaration,
+    function: &bound::FunctionDeclaration,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Function {
     let mut builder = Builder::new();
@@ -803,10 +803,10 @@ fn compute_reverse_postorder(function: &Function) -> Vec<BlockId> {
     postorder
 }
 
-/// Lower a complete resolved program to a CFG program.
-pub fn build(resolved_program: &ResolvedProgram) -> (Program, Vec<Diagnostic>) {
+/// Lower a complete bound program to a CFG program.
+pub fn build(bound_program: &BoundProgram) -> (Program, Vec<Diagnostic>) {
     let mut diagnostics = Vec::new();
-    let functions = resolved_program
+    let functions = bound_program
         .functions
         .iter()
         .map(|f| lower_function(f, &mut diagnostics))
@@ -814,7 +814,7 @@ pub fn build(resolved_program: &ResolvedProgram) -> (Program, Vec<Diagnostic>) {
     (
         Program {
             functions,
-            symbols: resolved_program.symbols.clone(),
+            symbols: bound_program.symbols.clone(),
         },
         diagnostics,
     )
@@ -823,10 +823,10 @@ pub fn build(resolved_program: &ResolvedProgram) -> (Program, Vec<Diagnostic>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bind::bind;
     use crate::ir::cfg::{Function, Instruction, Operation, Program, TempId, Terminator};
     use crate::ir::{BatchMode, DevicePin, Intrinsic, UnaryOperator};
     use crate::parser::parse;
-    use crate::resolve::resolve;
 
     fn build_cfg(source: &str) -> Program {
         let (ast, parse_diagnostics) = parse(source);
@@ -835,9 +835,8 @@ mod tests {
             .filter(|d| d.severity == crate::diagnostic::Severity::Error)
             .collect();
         assert!(errors.is_empty(), "parse errors: {:#?}", errors);
-        let (resolved, _) =
-            resolve(&ast).unwrap_or_else(|diags| panic!("resolve errors: {:#?}", diags));
-        let (program, _) = build(&resolved);
+        let (bound, _) = bind(&ast).unwrap_or_else(|diags| panic!("bind errors: {:#?}", diags));
+        let (program, _) = build(&bound);
         program
     }
 
@@ -848,9 +847,8 @@ mod tests {
             .filter(|d| d.severity == crate::diagnostic::Severity::Error)
             .collect();
         assert!(errors.is_empty(), "parse errors: {:#?}", errors);
-        let (resolved, _) =
-            resolve(&ast).unwrap_or_else(|diags| panic!("resolve errors: {:#?}", diags));
-        build(&resolved)
+        let (bound, _) = bind(&ast).unwrap_or_else(|diags| panic!("bind errors: {:#?}", diags));
+        build(&bound)
     }
 
     fn get_function<'a>(program: &'a Program, name: &str) -> &'a Function {

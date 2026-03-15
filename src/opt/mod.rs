@@ -162,10 +162,10 @@ fn optimize_to_fixpoint(function: &mut Function, features: &Features) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bind::bind;
     use crate::cfg;
     use crate::ir::cfg::{Function, Instruction, Operation, Program};
     use crate::parser::parse;
-    use crate::resolve::resolve;
     use crate::ssa;
 
     fn build_optimized(source: &str) -> Program {
@@ -182,9 +182,9 @@ mod tests {
             .filter(|d| d.severity == crate::diagnostic::Severity::Error)
             .collect();
         assert!(errors.is_empty(), "parse errors: {:#?}", errors);
-        let (resolved, _) = resolve(&ast)
-            .unwrap_or_else(|diagnostics| panic!("resolve errors: {:#?}", diagnostics));
-        let (mut program, _) = cfg::build(&resolved);
+        let (bound, _) =
+            bind(&ast).unwrap_or_else(|diagnostics| panic!("bind errors: {:#?}", diagnostics));
+        let (mut program, _) = cfg::build(&bound);
         ssa::construct_program(&mut program);
         program
     }

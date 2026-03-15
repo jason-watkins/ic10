@@ -153,11 +153,11 @@ mod tests {
 
     use super::phi::sequence_parallel_copies;
     use super::*;
+    use crate::bind::bind;
     use crate::cfg;
+    use crate::ir::bound::SymbolId;
     use crate::ir::cfg::{BlockId, Function, Instruction, Operation, Program, TempId};
-    use crate::ir::resolved::SymbolId;
     use crate::parser::parse;
-    use crate::resolve::resolve;
     use crate::ssa;
 
     fn build_ssa(source: &str) -> Program {
@@ -167,9 +167,9 @@ mod tests {
             .filter(|d| d.severity == crate::diagnostic::Severity::Error)
             .collect();
         assert!(errors.is_empty(), "parse errors: {:#?}", errors);
-        let (resolved, _) = resolve(&ast)
-            .unwrap_or_else(|diagnostics| panic!("resolve errors: {:#?}", diagnostics));
-        let (mut program, _) = cfg::build(&resolved);
+        let (bound, _) =
+            bind(&ast).unwrap_or_else(|diagnostics| panic!("bind errors: {:#?}", diagnostics));
+        let (mut program, _) = cfg::build(&bound);
         ssa::construct_program(&mut program);
         program
     }
@@ -1871,7 +1871,7 @@ mod tests {
         );
         if !callee_saved_pushes.is_empty() {
             assert!(
-                callee_saved_pushes.len() >= 1,
+                !callee_saved_pushes.is_empty(),
                 "should have at least one callee-saved push/pop pair"
             );
         }
@@ -1906,16 +1906,15 @@ mod tests {
             .collect();
 
         for &jal_index in &jal_indices {
-            if jal_index > 0 {
-                if let IC10Instruction::Push(Operand::Register(register)) =
+            if jal_index > 0
+                && let IC10Instruction::Push(Operand::Register(register)) =
                     &instructions[jal_index - 1]
-                {
-                    assert!(
-                        !register.is_callee_saved(),
-                        "callee-saved register {:?} should not be caller-saved around a call",
-                        register,
-                    );
-                }
+            {
+                assert!(
+                    !register.is_callee_saved(),
+                    "callee-saved register {:?} should not be caller-saved around a call",
+                    register,
+                );
             }
         }
     }

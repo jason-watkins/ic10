@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator,
 };
-use crate::ir::resolved::SymbolTable;
+use crate::ir::bound::SymbolTable;
 use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
 use super::allocator::{AllocationResult, SpillRecord};
@@ -585,7 +585,7 @@ impl<'a> Emitter<'a> {
     fn lower_call(
         &mut self,
         dest: Option<TempId>,
-        function_symbol: crate::ir::resolved::SymbolId,
+        function_symbol: crate::ir::bound::SymbolId,
         args: &[TempId],
         position: LinearPosition,
     ) {

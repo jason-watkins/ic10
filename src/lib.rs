@@ -1,3 +1,4 @@
+pub mod bind;
 pub mod cfg;
 pub mod codegen;
 pub mod crc32;
@@ -7,5 +8,4 @@ pub mod lexer;
 pub mod opt;
 pub mod parser;
 pub mod regalloc;
-pub mod resolve;
 pub mod ssa;

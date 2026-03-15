@@ -8,7 +8,7 @@ use crate::ir::ast::{
     FunctionDeclaration as AstFunctionDeclaration, IfStatement as AstIfStatement, Item,
     LiteralKind, Program as AstProgram, Statement as AstStatement,
 };
-use crate::ir::resolved::{
+use crate::ir::bound::{
     AssignStatement, AssignmentTarget, Block, ElseClause, Expression, ExpressionKind,
     ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement, LetStatement, Parameter,
     Program, ReturnStatement, SleepStatement, Statement, SymbolId, SymbolInfo, SymbolKind,
@@ -31,14 +31,14 @@ struct FunctionSignature {
     parameter_types: Vec<Type>,
 }
 
-struct Resolver {
+struct Binder {
     symbols: SymbolTable,
     scopes: Vec<HashMap<String, ScopeEntry>>,
     function_signatures: HashMap<String, FunctionSignature>,
     diagnostics: Vec<Diagnostic>,
 }
 
-impl Resolver {
+impl Binder {
     fn new() -> Self {
         Self {
             symbols: SymbolTable::default(),
@@ -230,7 +230,7 @@ impl Resolver {
         }
     }
 
-    fn resolve_function(&mut self, ast_fn: &AstFunctionDeclaration) -> FunctionDeclaration {
+    fn bind_function(&mut self, ast_fn: &AstFunctionDeclaration) -> FunctionDeclaration {
         let sig = self.function_signatures.get(&ast_fn.name).unwrap();
         let function_symbol_id = sig.symbol_id;
         let return_type = sig.return_type;
@@ -254,7 +254,7 @@ impl Resolver {
             });
         }
 
-        let body = self.resolve_block(&ast_fn.body, return_type);
+        let body = self.bind_block(&ast_fn.body, return_type);
         self.pop_scope();
 
         FunctionDeclaration {
@@ -267,12 +267,12 @@ impl Resolver {
         }
     }
 
-    fn resolve_block(&mut self, block: &AstBlock, return_type: Type) -> Block {
+    fn bind_block(&mut self, block: &AstBlock, return_type: Type) -> Block {
         self.push_scope();
         let mut statements = Vec::new();
         for stmt in &block.stmts {
-            let resolved = self.resolve_statement(stmt, return_type);
-            statements.push(resolved);
+            let bound = self.bind_statement(stmt, return_type);
+            statements.push(bound);
         }
         self.pop_scope();
         Block {
@@ -281,10 +281,10 @@ impl Resolver {
         }
     }
 
-    fn resolve_statement(&mut self, stmt: &AstStatement, return_type: Type) -> Statement {
+    fn bind_statement(&mut self, stmt: &AstStatement, return_type: Type) -> Statement {
         match stmt {
             AstStatement::Let(s) => {
-                let init = self.resolve_expression(&s.init);
+                let init = self.bind_expression(&s.init);
                 let actual_type = init.ty;
 
                 let final_type = match s.ty {
@@ -317,8 +317,8 @@ impl Resolver {
             }
 
             AstStatement::Assign(s) => {
-                let value = self.resolve_expression(&s.rhs);
-                let target = self.resolve_assignment_target(&s.lhs, value.ty, s.span);
+                let value = self.bind_expression(&s.rhs);
+                let target = self.bind_assignment_target(&s.lhs, value.ty, s.span);
                 Statement::Assign(AssignStatement {
                     target,
                     value,
@@ -327,17 +327,17 @@ impl Resolver {
             }
 
             AstStatement::Expression(s) => {
-                let expression = self.resolve_expression(&s.expr);
+                let expression = self.bind_expression(&s.expr);
                 Statement::Expression(ExpressionStatement {
                     expression,
                     span: s.span,
                 })
             }
 
-            AstStatement::If(s) => Statement::If(self.resolve_if_statement(s, return_type)),
+            AstStatement::If(s) => Statement::If(self.bind_if_statement(s, return_type)),
 
             AstStatement::While(s) => {
-                let condition = self.resolve_expression(&s.cond);
+                let condition = self.bind_expression(&s.cond);
                 if condition.ty != Type::Bool {
                     self.error(
                         s.cond.span,
@@ -347,7 +347,7 @@ impl Resolver {
                         ),
                     );
                 }
-                let body = self.resolve_block(&s.body, return_type);
+                let body = self.bind_block(&s.body, return_type);
                 Statement::While(WhileStatement {
                     condition,
                     body,
@@ -356,8 +356,8 @@ impl Resolver {
             }
 
             AstStatement::For(s) => {
-                let lower = self.resolve_expression(&s.lower);
-                let upper = self.resolve_expression(&s.upper);
+                let lower = self.bind_expression(&s.lower);
+                let upper = self.bind_expression(&s.upper);
                 if lower.ty != Type::I53 {
                     self.error(
                         s.lower.span,
@@ -384,7 +384,7 @@ impl Resolver {
                     kind: SymbolKind::Local,
                 });
                 self.define(s.var.clone(), ScopeEntry::Symbol(variable));
-                let body = self.resolve_block(&s.body, return_type);
+                let body = self.bind_block(&s.body, return_type);
                 self.pop_scope();
                 Statement::For(ForStatement {
                     variable,
@@ -399,7 +399,7 @@ impl Resolver {
             AstStatement::Continue(span) => Statement::Continue(*span),
 
             AstStatement::Return(s) => {
-                let value = s.value.as_ref().map(|v| self.resolve_expression(v));
+                let value = s.value.as_ref().map(|v| self.bind_expression(v));
                 let value_type = value.as_ref().map(|v| v.ty);
                 match (return_type, value_type) {
                     (Type::Unit, Some(_)) => {
@@ -433,7 +433,7 @@ impl Resolver {
             AstStatement::Yield(span) => Statement::Yield(*span),
 
             AstStatement::Sleep(s) => {
-                let duration = self.resolve_expression(&s.duration);
+                let duration = self.bind_expression(&s.duration);
                 if duration.ty != Type::F64 {
                     self.error(
                         s.duration.span,
@@ -448,7 +448,7 @@ impl Resolver {
         }
     }
 
-    fn resolve_assignment_target(
+    fn bind_assignment_target(
         &mut self,
         target: &AstAssignmentTarget,
         value_type: Type,
@@ -538,26 +538,26 @@ impl Resolver {
             } => match self.lookup(device) {
                 Some(ScopeEntry::Device(pin)) => {
                     let pin = *pin;
-                    let slot_resolved = self.resolve_expression(slot);
-                    if slot_resolved.ty != Type::I53 {
+                    let slot_bound = self.bind_expression(slot);
+                    if slot_bound.ty != Type::I53 {
                         self.error(
                             slot.span,
-                            format!("slot index must be `i53`, found `{:?}`", slot_resolved.ty),
+                            format!("slot index must be `i53`, found `{:?}`", slot_bound.ty),
                         );
                     }
                     AssignmentTarget::SlotField {
                         pin,
-                        slot: slot_resolved,
+                        slot: slot_bound,
                         field: field.clone(),
                         span: *span,
                     }
                 }
                 _ => {
                     self.error(*span, format!("`{device}` is not a device"));
-                    let slot_resolved = self.resolve_expression(slot);
+                    let slot_bound = self.bind_expression(slot);
                     AssignmentTarget::SlotField {
                         pin: DevicePin::D0,
-                        slot: slot_resolved,
+                        slot: slot_bound,
                         field: field.clone(),
                         span: *span,
                     }
@@ -566,19 +566,19 @@ impl Resolver {
         }
     }
 
-    fn resolve_if_statement(&mut self, s: &AstIfStatement, return_type: Type) -> IfStatement {
-        let condition = self.resolve_expression(&s.cond);
+    fn bind_if_statement(&mut self, s: &AstIfStatement, return_type: Type) -> IfStatement {
+        let condition = self.bind_expression(&s.cond);
         if condition.ty != Type::Bool {
             self.error(
                 s.cond.span,
                 format!("`if` condition must be `bool`, found `{:?}`", condition.ty),
             );
         }
-        let then_block = self.resolve_block(&s.then_block, return_type);
+        let then_block = self.bind_block(&s.then_block, return_type);
         let else_clause = s
             .else_clause
             .as_ref()
-            .map(|e| self.resolve_else_clause(e, return_type));
+            .map(|e| self.bind_else_clause(e, return_type));
         IfStatement {
             condition,
             then_block,
@@ -587,18 +587,16 @@ impl Resolver {
         }
     }
 
-    fn resolve_else_clause(&mut self, else_: &AstElseClause, return_type: Type) -> ElseClause {
+    fn bind_else_clause(&mut self, else_: &AstElseClause, return_type: Type) -> ElseClause {
         match else_ {
-            AstElseClause::Block(block) => {
-                ElseClause::Block(self.resolve_block(block, return_type))
-            }
+            AstElseClause::Block(block) => ElseClause::Block(self.bind_block(block, return_type)),
             AstElseClause::If(if_stmt) => {
-                ElseClause::If(Box::new(self.resolve_if_statement(if_stmt, return_type)))
+                ElseClause::If(Box::new(self.bind_if_statement(if_stmt, return_type)))
             }
         }
     }
 
-    fn resolve_expression(&mut self, expr: &AstExpression) -> Expression {
+    fn bind_expression(&mut self, expr: &AstExpression) -> Expression {
         match &expr.kind {
             AstExpressionKind::Literal(lit) => {
                 let (value, ty) = match lit {
@@ -659,74 +657,67 @@ impl Resolver {
             },
 
             AstExpressionKind::Binary(op, lhs, rhs) => {
-                let lhs_resolved = self.resolve_expression(lhs);
-                let rhs_resolved = self.resolve_expression(rhs);
-                let left_type = lhs_resolved.ty;
-                let right_type = rhs_resolved.ty;
+                let lhs_bound = self.bind_expression(lhs);
+                let rhs_bound = self.bind_expression(rhs);
+                let left_type = lhs_bound.ty;
+                let right_type = rhs_bound.ty;
                 let op = *op;
                 let result_type =
                     infer_binary_type(op, left_type, right_type, expr.span, &mut self.diagnostics);
                 Expression {
-                    kind: ExpressionKind::Binary(
-                        op,
-                        Box::new(lhs_resolved),
-                        Box::new(rhs_resolved),
-                    ),
+                    kind: ExpressionKind::Binary(op, Box::new(lhs_bound), Box::new(rhs_bound)),
                     ty: result_type,
                     span: expr.span,
                 }
             }
 
             AstExpressionKind::Unary(op, inner) => {
-                let inner_resolved = self.resolve_expression(inner);
-                let inner_type = inner_resolved.ty;
+                let inner_bound = self.bind_expression(inner);
+                let inner_type = inner_bound.ty;
                 let op = *op;
                 let result_type =
                     infer_unary_type(op, inner_type, expr.span, &mut self.diagnostics);
                 Expression {
-                    kind: ExpressionKind::Unary(op, Box::new(inner_resolved)),
+                    kind: ExpressionKind::Unary(op, Box::new(inner_bound)),
                     ty: result_type,
                     span: expr.span,
                 }
             }
 
             AstExpressionKind::Cast(inner, target_type) => {
-                let inner_resolved = self.resolve_expression(inner);
-                let src_type = inner_resolved.ty;
+                let inner_bound = self.bind_expression(inner);
+                let src_type = inner_bound.ty;
                 let target_type = *target_type;
                 validate_cast(src_type, target_type, expr.span, &mut self.diagnostics);
                 Expression {
-                    kind: ExpressionKind::Cast(Box::new(inner_resolved), target_type),
+                    kind: ExpressionKind::Cast(Box::new(inner_bound), target_type),
                     ty: target_type,
                     span: expr.span,
                 }
             }
 
             AstExpressionKind::Call(call) => {
-                let resolved_args: Vec<Expression> = call
-                    .args
-                    .iter()
-                    .map(|a| self.resolve_expression(a))
-                    .collect();
+                let bound_args: Vec<Expression> =
+                    call.args.iter().map(|a| self.bind_expression(a)).collect();
                 match self.function_signatures.get(&call.name) {
                     Some(sig) => {
                         let symbol_id = sig.symbol_id;
                         let return_type = sig.return_type;
                         let param_types: Vec<Type> = sig.parameter_types.clone();
 
-                        if resolved_args.len() != param_types.len() {
+                        if bound_args.len() != param_types.len() {
                             self.error(
                                 call.span,
                                 format!(
                                     "function `{}` expects {} argument(s), found {}",
                                     call.name,
                                     param_types.len(),
-                                    resolved_args.len()
+                                    bound_args.len()
                                 ),
                             );
                         } else {
                             for (i, (arg, &param_type)) in
-                                resolved_args.iter().zip(param_types.iter()).enumerate()
+                                bound_args.iter().zip(param_types.iter()).enumerate()
                             {
                                 if arg.ty != param_type {
                                     self.error(
@@ -744,7 +735,7 @@ impl Resolver {
                         }
                         let result_type = return_type;
                         Expression {
-                            kind: ExpressionKind::Call(symbol_id, resolved_args),
+                            kind: ExpressionKind::Call(symbol_id, bound_args),
                             ty: result_type,
                             span: expr.span,
                         }
@@ -761,19 +752,19 @@ impl Resolver {
             }
 
             AstExpressionKind::IntrinsicCall(intrinsic, args) => {
-                let resolved_args: Vec<Expression> =
-                    args.iter().map(|a| self.resolve_expression(a)).collect();
+                let bound_args: Vec<Expression> =
+                    args.iter().map(|a| self.bind_expression(a)).collect();
                 let expected = intrinsic_param_count(*intrinsic);
-                if resolved_args.len() != expected {
+                if bound_args.len() != expected {
                     self.error(
                         expr.span,
                         format!(
                             "intrinsic `{intrinsic:?}` expects {expected} argument(s), found {}",
-                            resolved_args.len()
+                            bound_args.len()
                         ),
                     );
                 } else {
-                    for arg in &resolved_args {
+                    for arg in &bound_args {
                         if arg.ty != Type::F64 {
                             self.error(
                                 arg.span,
@@ -786,7 +777,7 @@ impl Resolver {
                     }
                 }
                 Expression {
-                    kind: ExpressionKind::IntrinsicCall(*intrinsic, resolved_args),
+                    kind: ExpressionKind::IntrinsicCall(*intrinsic, bound_args),
                     ty: Type::F64,
                     span: expr.span,
                 }
@@ -821,17 +812,17 @@ impl Resolver {
             } => match self.lookup(device) {
                 Some(ScopeEntry::Device(pin)) => {
                     let pin = *pin;
-                    let slot_resolved = self.resolve_expression(slot);
-                    if slot_resolved.ty != Type::I53 {
+                    let slot_bound = self.bind_expression(slot);
+                    if slot_bound.ty != Type::I53 {
                         self.error(
                             slot.span,
-                            format!("slot index must be `i53`, found `{:?}`", slot_resolved.ty),
+                            format!("slot index must be `i53`, found `{:?}`", slot_bound.ty),
                         );
                     }
                     Expression {
                         kind: ExpressionKind::SlotRead {
                             pin,
-                            slot: Box::new(slot_resolved),
+                            slot: Box::new(slot_bound),
                             field: field.clone(),
                         },
                         ty: Type::F64,
@@ -853,19 +844,16 @@ impl Resolver {
                 field,
                 mode,
             } => {
-                let hash_resolved = self.resolve_expression(hash_expr);
-                if hash_resolved.ty != Type::F64 {
+                let hash_bound = self.bind_expression(hash_expr);
+                if hash_bound.ty != Type::F64 {
                     self.error(
                         hash_expr.span,
-                        format!(
-                            "batch_read hash must be `f64`, found `{:?}`",
-                            hash_resolved.ty
-                        ),
+                        format!("batch_read hash must be `f64`, found `{:?}`", hash_bound.ty),
                     );
                 }
                 Expression {
                     kind: ExpressionKind::BatchRead {
-                        hash_expr: Box::new(hash_resolved),
+                        hash_expr: Box::new(hash_bound),
                         field: field.clone(),
                         mode: *mode,
                     },
@@ -879,33 +867,33 @@ impl Resolver {
                 if_true,
                 if_false,
             } => {
-                let cond_resolved = self.resolve_expression(cond);
-                let true_resolved = self.resolve_expression(if_true);
-                let false_resolved = self.resolve_expression(if_false);
-                if cond_resolved.ty != Type::Bool {
+                let cond_bound = self.bind_expression(cond);
+                let true_bound = self.bind_expression(if_true);
+                let false_bound = self.bind_expression(if_false);
+                if cond_bound.ty != Type::Bool {
                     self.error(
                         cond.span,
                         format!(
                             "`select` condition must be `bool`, found `{:?}`",
-                            cond_resolved.ty
+                            cond_bound.ty
                         ),
                     );
                 }
-                if true_resolved.ty != false_resolved.ty {
+                if true_bound.ty != false_bound.ty {
                     self.error(
                         expr.span,
                         format!(
                             "`select` branches have different types: `{:?}` vs `{:?}`",
-                            true_resolved.ty, false_resolved.ty
+                            true_bound.ty, false_bound.ty
                         ),
                     );
                 }
-                let result_type = true_resolved.ty;
+                let result_type = true_bound.ty;
                 Expression {
                     kind: ExpressionKind::Select {
-                        condition: Box::new(cond_resolved),
-                        if_true: Box::new(true_resolved),
-                        if_false: Box::new(false_resolved),
+                        condition: Box::new(cond_bound),
+                        if_true: Box::new(true_bound),
+                        if_false: Box::new(false_bound),
                     },
                     ty: result_type,
                     span: expr.span,
@@ -1164,84 +1152,83 @@ fn intrinsic_param_count(intrinsic: Intrinsic) -> usize {
     }
 }
 
-/// Resolve an `ast::Program` to a `resolved::Program`.
+/// Bind an `ast::Program` to a `bound::Program`.
 ///
 /// All errors are accumulated before returning. Returns `Err` if any errors
 /// were produced; warnings do not prevent a successful result.
-pub fn resolve(program: &AstProgram) -> Result<(Program, Vec<Diagnostic>), Vec<Diagnostic>> {
-    let mut resolver = Resolver::new();
+pub fn bind(program: &AstProgram) -> Result<(Program, Vec<Diagnostic>), Vec<Diagnostic>> {
+    let mut binder = Binder::new();
 
-    resolver.push_scope();
-    resolver.pre_pass(program);
-    resolver.validate_main(program);
+    binder.push_scope();
+    binder.pre_pass(program);
+    binder.validate_main(program);
 
     let functions: Vec<FunctionDeclaration> = program
         .items
         .iter()
         .filter_map(|item| {
             if let Item::Fn(f) = item {
-                Some(resolver.resolve_function(f))
+                Some(binder.bind_function(f))
             } else {
                 None
             }
         })
         .collect();
 
-    resolver.pop_scope();
+    binder.pop_scope();
 
-    if resolver
+    if binder
         .diagnostics
         .iter()
         .any(|d| d.severity == Severity::Error)
     {
-        Err(resolver.diagnostics)
+        Err(binder.diagnostics)
     } else {
         Ok((
             Program {
                 functions,
-                symbols: resolver.symbols,
+                symbols: binder.symbols,
             },
-            resolver.diagnostics,
+            binder.diagnostics,
         ))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::resolve;
+    use super::bind;
     use crate::crc32::crc32;
     use crate::diagnostic::Diagnostic;
     use crate::ir::Type;
-    use crate::ir::resolved::Program;
-    use crate::ir::resolved::{ExpressionKind, Statement, SymbolKind};
+    use crate::ir::bound::Program;
+    use crate::ir::bound::{ExpressionKind, Statement, SymbolKind};
     use crate::parser::parse;
 
-    fn resolve_ok(source: &str) -> Program {
+    fn bind_ok(source: &str) -> Program {
         let (ast, parse_diagnostics) = parse(source);
         let errors: Vec<_> = parse_diagnostics
             .iter()
             .filter(|d| d.severity == crate::diagnostic::Severity::Error)
             .collect();
         assert!(errors.is_empty(), "parse errors: {:#?}", errors);
-        let (program, _) =
-            resolve(&ast).unwrap_or_else(|diags| panic!("resolve errors: {:#?}", diags));
+        let (program, _) = bind(&ast).unwrap_or_else(|diags| panic!("bind errors: {:#?}", diags));
         program
     }
 
-    fn resolve_errors(source: &str) -> Vec<Diagnostic> {
+    fn bind_errors(source: &str) -> Vec<Diagnostic> {
         let (ast, _) = parse(source);
-        resolve(&ast).unwrap_err()
+        bind(&ast).unwrap_err()
     }
 
     fn has_error(source: &str, fragment: &str) -> bool {
-        let errors = resolve_errors(source);
+        let errors = bind_errors(source);
         errors.iter().any(|d| d.message.contains(fragment))
     }
 
     // 4.1 / 4.2 — basic let binding, symbol allocation, scope
     #[test]
     fn let_binding_infers_type() {
-        let program = resolve_ok("fn main() { let x = 42; }");
+        let program = bind_ok("fn main() { let x = 42; }");
         let func = &program.functions[0];
         assert_eq!(func.name, "main");
         let Statement::Let(s) = &func.body.statements[0] else {
@@ -1255,7 +1242,7 @@ mod tests {
 
     #[test]
     fn let_mut_binding() {
-        let program = resolve_ok("fn main() { let mut count = 0; }");
+        let program = bind_ok("fn main() { let mut count = 0; }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
         };
@@ -1264,7 +1251,7 @@ mod tests {
 
     #[test]
     fn let_type_annotation_matches() {
-        let program = resolve_ok("fn main() { let x: f64 = 1.0; }");
+        let program = bind_ok("fn main() { let x: f64 = 1.0; }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
         };
@@ -1279,7 +1266,7 @@ mod tests {
     // 4.3 / 4.4 — const folding
     #[test]
     fn const_folds_to_literal() {
-        let program = resolve_ok("const LIMIT: i53 = 10; fn main() { let x = LIMIT; }");
+        let program = bind_ok("const LIMIT: i53 = 10; fn main() { let x = LIMIT; }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
         };
@@ -1295,7 +1282,7 @@ mod tests {
 
     #[test]
     fn const_not_emitted_as_function() {
-        let program = resolve_ok("const X: i53 = 5; fn main() {}");
+        let program = bind_ok("const X: i53 = 5; fn main() {}");
         // No symbols with SymbolKind::Function named "X"
         assert!(program.symbols.symbols.iter().all(|s| s.name != "X"));
     }
@@ -1303,7 +1290,7 @@ mod tests {
     // 4.5 — hash folding
     #[test]
     fn hash_folds_to_literal() {
-        let program = resolve_ok("fn main() { let h = hash(\"StructureGasSensor\"); }");
+        let program = bind_ok("fn main() { let h = hash(\"StructureGasSensor\"); }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
         };
@@ -1316,15 +1303,15 @@ mod tests {
 
     // 4.6 — device declarations
     #[test]
-    fn device_not_emitted_in_resolved_ir() {
-        let program = resolve_ok("device sensor: d0; fn main() {}");
+    fn device_not_emitted_in_bound_ir() {
+        let program = bind_ok("device sensor: d0; fn main() {}");
         assert!(program.symbols.symbols.iter().all(|s| s.name != "sensor"));
     }
 
     #[test]
     fn device_read_resolves_to_pin() {
         use crate::ir::DevicePin;
-        let program = resolve_ok("device sensor: d0; fn main() { let t = sensor.Temperature; }");
+        let program = bind_ok("device sensor: d0; fn main() { let t = sensor.Temperature; }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
         };
@@ -1344,7 +1331,7 @@ mod tests {
     // 4.8 — function call resolution
     #[test]
     fn function_call_resolves() {
-        let program = resolve_ok(
+        let program = bind_ok(
             "fn add(a: i53, b: i53) -> i53 { return a + b; } fn main() { let r = add(1, 2); }",
         );
         let Statement::Let(s) = &program.functions[1].body.statements[0] else {
@@ -1380,7 +1367,7 @@ mod tests {
 
     #[test]
     fn eight_parameters_is_ok() {
-        resolve_ok(
+        bind_ok(
             "fn eight(a: i53, b: i53, c: i53, d: i53, e: i53, f: i53, g: i53, h: i53) -> i53 { return a; } fn main() {}",
         );
     }
@@ -1388,8 +1375,8 @@ mod tests {
     // 4.9 — device assignment target
     #[test]
     fn device_field_write_resolves() {
-        use crate::ir::resolved::AssignmentTarget;
-        let program = resolve_ok("device heater: d1; fn main() { heater.On = 1.0; }");
+        use crate::ir::bound::AssignmentTarget;
+        let program = bind_ok("device heater: d1; fn main() { heater.On = 1.0; }");
         let Statement::Assign(s) = &program.functions[0].body.statements[0] else {
             panic!("expected assign");
         };
@@ -1399,7 +1386,7 @@ mod tests {
     // 4.10 / 4.11 — type inference and checking
     #[test]
     fn division_of_i53_yields_f64() {
-        let program = resolve_ok("fn main() { let q = 7 / 2; }");
+        let program = bind_ok("fn main() { let q = 7 / 2; }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
         };
@@ -1424,7 +1411,7 @@ mod tests {
 
     #[test]
     fn comparison_produces_bool() {
-        let program = resolve_ok("fn main() { let b = 1 < 2; }");
+        let program = bind_ok("fn main() { let b = 1 < 2; }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
         };
@@ -1433,7 +1420,7 @@ mod tests {
 
     #[test]
     fn cast_i53_to_f64() {
-        let program = resolve_ok("fn main() { let x = 5; let f = x as f64; }");
+        let program = bind_ok("fn main() { let x = 5; let f = x as f64; }");
         let Statement::Let(s) = &program.functions[0].body.statements[1] else {
             panic!("expected let");
         };
@@ -1459,7 +1446,7 @@ mod tests {
 
     #[test]
     fn assign_to_mutable_ok() {
-        resolve_ok("fn main() { let mut x = 0; x = 1; }");
+        bind_ok("fn main() { let mut x = 0; x = 1; }");
     }
 
     // 4.13 — main validation
@@ -1504,12 +1491,12 @@ mod tests {
     // Forward reference to function
     #[test]
     fn forward_reference_to_function() {
-        resolve_ok("fn main() { let r = helper(); } fn helper() -> i53 { return 1; }");
+        bind_ok("fn main() { let r = helper(); } fn helper() -> i53 { return 1; }");
     }
 
     #[test]
     fn void_function_call_result_is_unit_type() {
-        let program = resolve_ok("fn noop() {} fn main() { noop(); }");
+        let program = bind_ok("fn noop() {} fn main() { noop(); }");
         let Statement::Expression(s) = &program.functions[1].body.statements[0] else {
             panic!("expected expression statement");
         };
@@ -1530,7 +1517,7 @@ mod tests {
         use crate::diagnostic::Severity;
         let (ast, _) = parse("fn main() { let x = 5; let y = x as i53; }");
         let (program, warnings) =
-            resolve(&ast).unwrap_or_else(|diags| panic!("resolve errors: {:#?}", diags));
+            bind(&ast).unwrap_or_else(|diags| panic!("bind errors: {:#?}", diags));
         assert!(
             warnings
                 .iter()

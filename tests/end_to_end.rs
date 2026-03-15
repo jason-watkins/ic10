@@ -4,7 +4,7 @@ use ic20::diagnostic::Severity;
 use ic20::opt::{self, OptLevel};
 use ic20::parser;
 use ic20::regalloc;
-use ic20::resolve;
+use ic20::bind;
 use ic20::ssa;
 
 fn compile(source: &str) -> Result<String, String> {
@@ -17,10 +17,10 @@ fn compile(source: &str) -> Result<String, String> {
         return Err(format!("parse errors: {errors:#?}"));
     }
 
-    let (resolved, _) = resolve::resolve(&ast)
-        .map_err(|diagnostics| format!("resolve errors: {diagnostics:#?}"))?;
+    let (bound, _) = bind::bind(&ast)
+        .map_err(|diagnostics| format!("bind errors: {diagnostics:#?}"))?;
 
-    let (mut program, cfg_diagnostics) = cfg::build(&resolved);
+    let (mut program, cfg_diagnostics) = cfg::build(&bound);
     let cfg_errors: Vec<_> = cfg_diagnostics
         .iter()
         .filter(|d| d.severity == Severity::Error)

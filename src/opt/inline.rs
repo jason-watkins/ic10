@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, Program, TempId, Terminator,
 };
-use crate::ir::resolved::SymbolId;
+use crate::ir::bound::SymbolId;
 
 use super::utilities::{instruction_dest, substitute_in_instruction, substitute_in_terminator};
 

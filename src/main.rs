@@ -4,13 +4,13 @@ use std::str::FromStr;
 
 use clap::{Parser, ValueEnum};
 
+use ic20::bind;
 use ic20::cfg;
 use ic20::codegen;
 use ic20::diagnostic::{Diagnostic, Severity};
 use ic20::opt::{self, Features, OptLevel};
 use ic20::parser;
 use ic20::regalloc;
-use ic20::resolve;
 use ic20::ssa;
 
 /// An individual optimization pass that can be enabled or disabled with `-f`/`--feature`.
@@ -188,21 +188,21 @@ fn main() {
         process::exit(0);
     }
 
-    let (resolved, resolve_diagnostics) = match resolve::resolve(&ast) {
+    let (bound, bind_diagnostics) = match bind::bind(&ast) {
         Ok(result) => result,
         Err(diagnostics) => {
             emit_diagnostics(&diagnostics, &source, &filename);
             process::exit(1);
         }
     };
-    collect_warnings(&resolve_diagnostics, &mut all_warnings);
+    collect_warnings(&bind_diagnostics, &mut all_warnings);
 
     if arguments.dump_resolved {
-        println!("{:#?}", resolved);
+        println!("{:#?}", bound);
         process::exit(0);
     }
 
-    let (mut program, cfg_diagnostics) = cfg::build(&resolved);
+    let (mut program, cfg_diagnostics) = cfg::build(&bound);
     if emit_diagnostics_and_check_errors(&cfg_diagnostics, &source, &filename) {
         process::exit(1);
     }

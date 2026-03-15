@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::resolved::{SymbolId, SymbolTable};
+use super::bound::{SymbolId, SymbolTable};
 use super::shared::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
 /// An opaque identifier for a temporary (three-address) value.
@@ -11,7 +11,7 @@ pub struct TempId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlockId(pub usize);
 
-/// A complete CFG program — one `Function` per resolved function declaration.
+/// A complete CFG program — one `Function` per bound function declaration.
 #[derive(Debug)]
 pub struct Program {
     pub functions: Vec<Function>,

@@ -412,11 +412,11 @@ pub fn generate(program: &IC10Program, keep_labels: bool) -> (String, Vec<Diagno
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bind::bind;
     use crate::cfg;
     use crate::opt;
     use crate::parser::parse;
     use crate::regalloc;
-    use crate::resolve::resolve;
     use crate::ssa;
 
     fn compile(source: &str) -> String {
@@ -426,9 +426,9 @@ mod tests {
             .filter(|d| d.severity == crate::diagnostic::Severity::Error)
             .collect();
         assert!(errors.is_empty(), "parse errors: {errors:#?}");
-        let (resolved, _) =
-            resolve(&ast).unwrap_or_else(|diagnostics| panic!("resolve errors: {diagnostics:#?}"));
-        let (mut program, _) = cfg::build(&resolved);
+        let (bound, _) =
+            bind(&ast).unwrap_or_else(|diagnostics| panic!("bind errors: {diagnostics:#?}"));
+        let (mut program, _) = cfg::build(&bound);
         ssa::construct_program(&mut program);
         let opt_features = opt::Features::from_opt_level(opt::OptLevel::O2);
         opt::optimize_program(&mut program, opt::OptLevel::O2, &opt_features);

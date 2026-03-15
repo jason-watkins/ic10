@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::ir::bound::SymbolId;
 use crate::ir::cfg::{
     BasicBlock, BlockId, Function, Instruction, Operation, Program, TempId, Terminator,
 };
-use crate::ir::resolved::SymbolId;
 
 /// Convert all functions in a CFG program to pruned SSA form.
 pub fn construct_program(program: &mut Program) {
@@ -552,10 +552,10 @@ fn rename_terminator_operands(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bind::bind;
     use crate::cfg;
     use crate::ir::cfg::{BlockId, Function, Instruction, Program, TempId};
     use crate::parser::parse;
-    use crate::resolve::resolve;
 
     fn build_ssa(source: &str) -> Program {
         let (ast, parse_diagnostics) = parse(source);
@@ -564,9 +564,9 @@ mod tests {
             .filter(|d| d.severity == crate::diagnostic::Severity::Error)
             .collect();
         assert!(errors.is_empty(), "parse errors: {:#?}", errors);
-        let (resolved, _) = resolve(&ast)
-            .unwrap_or_else(|diagnostics| panic!("resolve errors: {:#?}", diagnostics));
-        let (mut program, _) = cfg::build(&resolved);
+        let (bound, _) =
+            bind(&ast).unwrap_or_else(|diagnostics| panic!("bind errors: {:#?}", diagnostics));
+        let (mut program, _) = cfg::build(&bound);
         construct_program(&mut program);
         program
     }
