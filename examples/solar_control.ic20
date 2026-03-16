@@ -1,3 +1,9 @@
+// Uses a daylight sensor to point all connected solar panels towards the sun. Assumes the sensor
+// is installed with its data port facing North, and the solar panels are installed with their
+// single or power port facing East.
+// In addition, monitors an APC connected to d1 and a solid fuel generator connected to d2 and
+// turns the generator on/off automatically to maintain charge if the solar panels aren't keeping
+// up with demand.
 device sensor: d0;
 device apc: d1;
 device generator: d2;
