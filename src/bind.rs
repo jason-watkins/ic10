@@ -9,10 +9,10 @@ use crate::ir::ast::{
     LiteralKind, Program as AstProgram, Statement as AstStatement,
 };
 use crate::ir::bound::{
-    AssignStatement, AssignmentTarget, Block, ElseClause, Expression, ExpressionKind,
-    ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement, LetStatement, Parameter,
-    Program, ReturnStatement, SleepStatement, Statement, SymbolId, SymbolInfo, SymbolKind,
-    SymbolTable, WhileStatement,
+    AssignStatement, AssignmentTarget, BatchWriteStatement, Block, ElseClause, Expression,
+    ExpressionKind, ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement,
+    LetStatement, Parameter, Program, ReturnStatement, SleepStatement, Statement, SymbolId,
+    SymbolInfo, SymbolKind, SymbolTable, WhileStatement,
 };
 use crate::ir::{BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
@@ -464,6 +464,23 @@ impl Binder {
                 }
                 Statement::Sleep(SleepStatement {
                     duration,
+                    span: s.span,
+                })
+            }
+
+            AstStatement::BatchWrite(s) => {
+                let hash_bound = self.bind_expression(&s.hash_expr);
+                if hash_bound.ty != Type::F64 {
+                    self.error(
+                        s.hash_expr.span,
+                        format!("batch_write hash must be `f64`, found `{:?}`", hash_bound.ty),
+                    );
+                }
+                let value_bound = self.bind_expression(&s.value);
+                Statement::BatchWrite(BatchWriteStatement {
+                    hash_expr: hash_bound,
+                    field: s.field.clone(),
+                    value: value_bound,
                     span: s.span,
                 })
             }

@@ -84,6 +84,8 @@ pub enum Statement {
     Yield(Span),
     /// `sleep(expr);` (§6.13).
     Sleep(SleepStatement),
+    /// `batch_write(hash_expr, Field, value);` (§8.5.2).
+    BatchWrite(BatchWriteStatement),
 }
 
 /// `let [mut] name [: Type] = expr;`
@@ -179,6 +181,15 @@ pub struct ReturnStatement {
 #[derive(Debug, Clone)]
 pub struct SleepStatement {
     pub duration: Expression,
+    pub span: Span,
+}
+
+/// `batch_write(hash_expr, Field, value);`
+#[derive(Debug, Clone)]
+pub struct BatchWriteStatement {
+    pub hash_expr: Expression,
+    pub field: String,
+    pub value: Expression,
     pub span: Span,
 }
 

@@ -15,7 +15,7 @@ pub fn crc32(s: &str) -> f64 {
             }
         }
     }
-    f64::from(crc ^ 0xFFFF_FFFF)
+    f64::from((crc ^ 0xFFFF_FFFF) as i32)
 }
 
 #[cfg(test)]
@@ -28,5 +28,7 @@ mod tests {
         assert_eq!(crc32("ItemEvaSuit"), 1677018918.0);
         assert_eq!(crc32("ItemIronOre"), 1758427767.0);
         assert_eq!(crc32("StructureElectronicsPrinter"), 1307165496.0);
+        assert_eq!(crc32("StructureSolarPanel"), -2045627372.0);
+        assert_eq!(crc32("StructureSolarPanelDual"), -539224550.0);
     }
 }

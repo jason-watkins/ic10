@@ -94,6 +94,7 @@ pub enum Statement {
     Return(ReturnStatement),
     Yield(Span),
     Sleep(SleepStatement),
+    BatchWrite(BatchWriteStatement),
 }
 
 impl Statement {
@@ -110,6 +111,7 @@ impl Statement {
             Statement::Return(s) => s.span,
             Statement::Yield(span) => *span,
             Statement::Sleep(s) => s.span,
+            Statement::BatchWrite(s) => s.span,
         }
     }
 }
@@ -202,6 +204,15 @@ pub struct ReturnStatement {
 #[derive(Debug, Clone)]
 pub struct SleepStatement {
     pub duration: Expression,
+    pub span: Span,
+}
+
+/// `batch_write(hash_expr, Field, value);` (§8.5.2).
+#[derive(Debug, Clone)]
+pub struct BatchWriteStatement {
+    pub hash_expr: Expression,
+    pub field: String,
+    pub value: Expression,
     pub span: Span,
 }
 

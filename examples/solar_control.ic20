@@ -1,0 +1,26 @@
+device sensor: d0;
+device apc: d1;
+device generator: d2;
+
+fn main () {
+    loop {
+        let vertical = sensor.Vertical + 90.0;
+        let horizontal = sensor.Horizontal;
+
+        batch_write(hash("StructureSolarPanelDual"), Vertical, vertical);
+        batch_write(hash("StructureSolarPanelDual"), Horizontal, horizontal);
+        batch_write(hash("StructureSolarPanel"), Vertical, vertical);
+        batch_write(hash("StructureSolarPanel"), Horizontal, horizontal);
+
+        let apc_charge = apc.Ratio;
+        if apc_charge < 0.05 {
+            generator.On = true;
+        }
+        else if apc_charge > 0.75 {
+            generator.On = false;
+        }
+
+
+yield;
+}
+}

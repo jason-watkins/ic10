@@ -1,9 +1,9 @@
 use crate::diagnostic::{Diagnostic, Span};
 use crate::ir::ast::{
-    AssignStatement, AssignmentTarget, Block, CallExpression, ConstDeclaration, DeviceDeclaration,
-    ElseClause, Expression, ExpressionKind, ExpressionStatement, ForStatement, FunctionDeclaration,
-    IfStatement, Item, LetStatement, LiteralKind, Parameter, Program, ReturnStatement,
-    SleepStatement, Statement, WhileStatement,
+    AssignStatement, AssignmentTarget, BatchWriteStatement, Block, CallExpression,
+    ConstDeclaration, DeviceDeclaration, ElseClause, Expression, ExpressionKind,
+    ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement, Item, LetStatement,
+    LiteralKind, Parameter, Program, ReturnStatement, SleepStatement, Statement, WhileStatement,
 };
 use crate::ir::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 use crate::lexer::{Keyword, Literal, Operator, Punctuator, Token, TokenKind};
@@ -436,6 +436,9 @@ impl Parser {
         let start = self.current_span();
         let (name, name_span) = self.expect_identifier()?;
         if matches!(self.peek_kind(), TokenKind::Punctuator(Punctuator::LParen)) {
+            if name == "batch_write" {
+                return self.parse_batch_write(name_span).map(Statement::BatchWrite);
+            }
             let expr = self.parse_call(name, name_span)?;
             let end = self.expect(&TokenKind::Punctuator(Punctuator::Semi))?;
             let span = Span::new(start.start, end.end);
@@ -831,6 +834,28 @@ impl Parser {
                 field,
                 mode,
             },
+            span,
+        })
+    }
+
+    /// Parse a `batch_write(hash_expr, Field, value);` statement (§8.5.2).
+    ///
+    /// Called after the `batch_write` identifier has been consumed; `start` is
+    /// the span of that identifier.
+    fn parse_batch_write(&mut self, start: Span) -> Result<BatchWriteStatement, ()> {
+        self.expect(&TokenKind::Punctuator(Punctuator::LParen))?;
+        let hash_expr = self.parse_expression()?;
+        self.expect(&TokenKind::Punctuator(Punctuator::Comma))?;
+        let (field, _) = self.expect_identifier()?;
+        self.expect(&TokenKind::Punctuator(Punctuator::Comma))?;
+        let value = self.parse_expression()?;
+        self.expect(&TokenKind::Punctuator(Punctuator::RParen))?;
+        let end = self.expect(&TokenKind::Punctuator(Punctuator::Semi))?;
+        let span = Span::new(start.start, end.end);
+        Ok(BatchWriteStatement {
+            hash_expr,
+            field,
+            value,
             span,
         })
     }

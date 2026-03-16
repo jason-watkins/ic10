@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::diagnostic::{Diagnostic, Span};
 use crate::ir::bound::{
-    self, AssignmentTarget, ElseClause, ExpressionKind, Program as BoundProgram, Statement,
-    SymbolId,
+    self, AssignmentTarget, BatchWriteStatement, ElseClause, ExpressionKind,
+    Program as BoundProgram, Statement, SymbolId,
 };
 use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, Program, TempId, Terminator,
@@ -383,6 +383,21 @@ impl Builder {
                 let duration_temp = self.lower_expression(&sleep_statement.duration);
                 self.emit(Instruction::Sleep {
                     duration: duration_temp,
+                });
+            }
+
+            Statement::BatchWrite(BatchWriteStatement {
+                hash_expr,
+                field,
+                value,
+                ..
+            }) => {
+                let hash_temp = self.lower_expression(hash_expr);
+                let value_temp = self.lower_expression(value);
+                self.emit(Instruction::BatchWrite {
+                    hash: hash_temp,
+                    field: field.clone(),
+                    value: value_temp,
                 });
             }
         }
