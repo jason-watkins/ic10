@@ -4,6 +4,10 @@
     "description": "Language support for IC20, a Rust-inspired language that compiles to IC10 assembly for Stationeers.",
     "version": "0.1.0",
     "publisher": "ic20",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/ic20/ic20-vscode"
+    },
     "engines": {
         "vscode": "^1.85.0"
     },
