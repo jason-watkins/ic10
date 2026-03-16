@@ -1,0 +1,61 @@
+{
+    "name": "ic20-language",
+    "displayName": "IC20 Language",
+    "description": "Language support for IC20, a Rust-inspired language that compiles to IC10 assembly for Stationeers.",
+    "version": "0.1.0",
+    "publisher": "ic20",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Programming Languages",
+        "Snippets",
+        "Formatters"
+    ],
+    "icon": "icons/icon.png",
+    "main": "./out/extension.js",
+    "activationEvents": [
+        "onLanguage:ic20"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "ic20",
+                "aliases": [
+                    "IC20",
+                    "ic20"
+                ],
+                "extensions": [
+                    ".ic20"
+                ],
+                "configuration": "./language-configuration.json",
+                "icon": {
+                    "light": "./icons/ic20-light.svg",
+                    "dark": "./icons/ic20-dark.svg"
+                }
+            }
+        ],
+        "grammars": [
+            {
+                "language": "ic20",
+                "scopeName": "source.ic20",
+                "path": "./syntaxes/ic20.tmLanguage.json"
+            }
+        ],
+        "snippets": [
+            {
+                "language": "ic20",
+                "path": "./snippets/ic20.json"
+            }
+        ]
+    },
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "package": "vsce package"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.85.0",
+        "typescript": "^5.3.0"
+    }
+}

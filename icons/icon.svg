@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- background -->
+  <rect width="128" height="128" rx="18" fill="#1e2a35"/>
+  <!-- chip body -->
+  <rect x="28" y="28" width="72" height="72" rx="8" fill="#162230" stroke="#6FC3DF" stroke-width="3"/>
+  <!-- corner notch -->
+  <circle cx="36" cy="36" r="3" fill="#6FC3DF" opacity="0.5"/>
+  <!-- pins top -->
+  <rect x="46" y="14" width="6" height="14" rx="2" fill="#6FC3DF"/>
+  <rect x="61" y="14" width="6" height="14" rx="2" fill="#6FC3DF"/>
+  <rect x="76" y="14" width="6" height="14" rx="2" fill="#6FC3DF"/>
+  <!-- pins bottom -->
+  <rect x="46" y="100" width="6" height="14" rx="2" fill="#6FC3DF"/>
+  <rect x="61" y="100" width="6" height="14" rx="2" fill="#6FC3DF"/>
+  <rect x="76" y="100" width="6" height="14" rx="2" fill="#6FC3DF"/>
+  <!-- pins left -->
+  <rect x="14" y="46" width="14" height="6" rx="2" fill="#6FC3DF"/>
+  <rect x="14" y="61" width="14" height="6" rx="2" fill="#6FC3DF"/>
+  <rect x="14" y="76" width="14" height="6" rx="2" fill="#6FC3DF"/>
+  <!-- pins right -->
+  <rect x="100" y="46" width="14" height="6" rx="2" fill="#6FC3DF"/>
+  <rect x="100" y="61" width="14" height="6" rx="2" fill="#6FC3DF"/>
+  <rect x="100" y="76" width="14" height="6" rx="2" fill="#6FC3DF"/>
+  <!-- label -->
+  <text x="64" y="75" font-size="36" font-family="monospace" fill="#6FC3DF" text-anchor="middle" font-weight="bold">20</text>
+</svg>

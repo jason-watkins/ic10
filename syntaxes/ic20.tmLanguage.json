@@ -1,0 +1,440 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "IC20",
+    "scopeName": "source.ic20",
+    "patterns": [
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#device-declaration"
+        },
+        {
+            "include": "#const-declaration"
+        },
+        {
+            "include": "#function-declaration"
+        },
+        {
+            "include": "#statements"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.ic20",
+                    "match": "//.*$"
+                },
+                {
+                    "name": "comment.block.ic20",
+                    "begin": "/\\*",
+                    "end": "\\*/"
+                }
+            ]
+        },
+        "device-declaration": {
+            "match": "\\b(device)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(:)\\s*(d[0-5]|db)\\s*(;)",
+            "captures": {
+                "1": {
+                    "name": "keyword.other.device.ic20"
+                },
+                "2": {
+                    "name": "entity.name.variable.device.ic20"
+                },
+                "3": {
+                    "name": "punctuation.separator.colon.ic20"
+                },
+                "4": {
+                    "name": "constant.language.device-pin.ic20"
+                },
+                "5": {
+                    "name": "punctuation.terminator.semicolon.ic20"
+                }
+            }
+        },
+        "const-declaration": {
+            "begin": "\\b(const)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(:)",
+            "beginCaptures": {
+                "1": {
+                    "name": "keyword.other.const.ic20"
+                },
+                "2": {
+                    "name": "entity.name.constant.ic20"
+                },
+                "3": {
+                    "name": "punctuation.separator.colon.ic20"
+                }
+            },
+            "end": ";",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.terminator.semicolon.ic20"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "include": "#types"
+                },
+                {
+                    "include": "#expressions"
+                }
+            ]
+        },
+        "function-declaration": {
+            "begin": "\\b(fn)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()",
+            "beginCaptures": {
+                "1": {
+                    "name": "keyword.other.fn.ic20"
+                },
+                "2": {
+                    "name": "entity.name.function.ic20"
+                },
+                "3": {
+                    "name": "punctuation.section.parameters.begin.ic20"
+                }
+            },
+            "end": "(?<=\\})",
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "include": "#function-parameters"
+                },
+                {
+                    "include": "#return-type"
+                },
+                {
+                    "include": "#block"
+                }
+            ]
+        },
+        "function-parameters": {
+            "begin": "(?<=\\()",
+            "end": "\\)",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.section.parameters.end.ic20"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(:)\\s*(bool|i53|f64)\\b",
+                    "captures": {
+                        "1": {
+                            "name": "variable.parameter.ic20"
+                        },
+                        "2": {
+                            "name": "punctuation.separator.colon.ic20"
+                        },
+                        "3": {
+                            "name": "storage.type.ic20"
+                        }
+                    }
+                },
+                {
+                    "match": ",",
+                    "name": "punctuation.separator.comma.ic20"
+                }
+            ]
+        },
+        "return-type": {
+            "match": "(->)\\s*(bool|i53|f64)\\b",
+            "captures": {
+                "1": {
+                    "name": "punctuation.arrow.ic20"
+                },
+                "2": {
+                    "name": "storage.type.ic20"
+                }
+            }
+        },
+        "block": {
+            "begin": "\\{",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.section.block.begin.ic20"
+                }
+            },
+            "end": "\\}",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.section.block.end.ic20"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "#statements"
+                }
+            ]
+        },
+        "statements": {
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "include": "#let-declaration"
+                },
+                {
+                    "include": "#control-keywords"
+                },
+                {
+                    "include": "#expressions"
+                }
+            ]
+        },
+        "let-declaration": {
+            "match": "\\b(let)\\s+(mut\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)(?:\\s*(:)\\s*(bool|i53|f64))?",
+            "captures": {
+                "1": {
+                    "name": "keyword.other.let.ic20"
+                },
+                "2": {
+                    "name": "storage.modifier.mut.ic20"
+                },
+                "3": {
+                    "name": "variable.other.ic20"
+                },
+                "4": {
+                    "name": "punctuation.separator.colon.ic20"
+                },
+                "5": {
+                    "name": "storage.type.ic20"
+                }
+            }
+        },
+        "control-keywords": {
+            "patterns": [
+                {
+                    "match": "\\b(if|else|loop|while|for|in|break|continue|return|yield|sleep)\\b",
+                    "name": "keyword.control.ic20"
+                }
+            ]
+        },
+        "expressions": {
+            "patterns": [
+                {
+                    "include": "#strings"
+                },
+                {
+                    "include": "#builtin-functions"
+                },
+                {
+                    "include": "#function-call"
+                },
+                {
+                    "include": "#types"
+                },
+                {
+                    "include": "#keywords"
+                },
+                {
+                    "include": "#reserved-keywords"
+                },
+                {
+                    "include": "#constants"
+                },
+                {
+                    "include": "#numeric-literals"
+                },
+                {
+                    "include": "#operators"
+                },
+                {
+                    "include": "#punctuation"
+                },
+                {
+                    "include": "#slot-access"
+                },
+                {
+                    "include": "#field-access"
+                },
+                {
+                    "include": "#identifiers"
+                },
+                {
+                    "include": "#block"
+                }
+            ]
+        },
+        "strings": {
+            "name": "string.quoted.double.ic20",
+            "begin": "\"",
+            "end": "\"|$",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.ic20",
+                    "match": "\\\\."
+                }
+            ]
+        },
+        "builtin-functions": {
+            "match": "\\b(abs|ceil|floor|round|trunc|sqrt|exp|log|sin|cos|tan|asin|acos|atan|atan2|pow|min|max|lerp|clamp|rand|is_nan|select|hash|batch_read|batch_write)\\s*(?=\\()",
+            "captures": {
+                "1": {
+                    "name": "support.function.builtin.ic20"
+                }
+            }
+        },
+        "function-call": {
+            "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+            "captures": {
+                "1": {
+                    "name": "entity.name.function.call.ic20"
+                }
+            }
+        },
+        "types": {
+            "match": "\\b(bool|i53|f64)\\b",
+            "name": "storage.type.ic20"
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "match": "\\b(let|const|fn|device)\\b",
+                    "name": "keyword.other.ic20"
+                },
+                {
+                    "match": "\\b(if|else|loop|while|for|in|break|continue|return|yield|sleep)\\b",
+                    "name": "keyword.control.ic20"
+                },
+                {
+                    "match": "\\b(as)\\b",
+                    "name": "keyword.operator.cast.ic20"
+                },
+                {
+                    "match": "\\b(mut)\\b",
+                    "name": "storage.modifier.ic20"
+                }
+            ]
+        },
+        "reserved-keywords": {
+            "match": "\\b(enum|extern|match|pub|ref|static|struct|super|trait|type|unsafe|where|pin|batch_read_named|batch_write_named|batch_read_slot|batch_write_slot|batch_read_slot_named|batch_write_slot_named|bit_extract|bit_insert)\\b",
+            "name": "keyword.reserved.ic20"
+        },
+        "constants": {
+            "patterns": [
+                {
+                    "match": "\\b(true|false)\\b",
+                    "name": "constant.language.boolean.ic20"
+                },
+                {
+                    "match": "\\b(nan|inf)\\b",
+                    "name": "constant.language.float.ic20"
+                }
+            ]
+        },
+        "numeric-literals": {
+            "patterns": [
+                {
+                    "name": "constant.numeric.hex.ic20",
+                    "match": "\\b0x[0-9a-fA-F][0-9a-fA-F_]*\\b"
+                },
+                {
+                    "name": "constant.numeric.octal.ic20",
+                    "match": "\\b0o[0-7][0-7_]*\\b"
+                },
+                {
+                    "name": "constant.numeric.binary.ic20",
+                    "match": "\\b0b[01][01_]*\\b"
+                },
+                {
+                    "name": "constant.numeric.float.ic20",
+                    "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?\\b"
+                },
+                {
+                    "name": "constant.numeric.float.ic20",
+                    "match": "\\b[0-9][0-9_]*[eE][+-]?[0-9][0-9_]*\\b"
+                },
+                {
+                    "name": "constant.numeric.integer.ic20",
+                    "match": "\\b[0-9][0-9_]*\\b"
+                }
+            ]
+        },
+        "operators": {
+            "patterns": [
+                {
+                    "match": "&&|\\|\\|",
+                    "name": "keyword.operator.logical.ic20"
+                },
+                {
+                    "match": "<<|>>",
+                    "name": "keyword.operator.shift.ic20"
+                },
+                {
+                    "match": "==|!=|<=|>=|<|>",
+                    "name": "keyword.operator.comparison.ic20"
+                },
+                {
+                    "match": "[+\\-*/%]",
+                    "name": "keyword.operator.arithmetic.ic20"
+                },
+                {
+                    "match": "[&|^~]",
+                    "name": "keyword.operator.bitwise.ic20"
+                },
+                {
+                    "match": "!",
+                    "name": "keyword.operator.logical.not.ic20"
+                },
+                {
+                    "match": "=",
+                    "name": "keyword.operator.assignment.ic20"
+                },
+                {
+                    "match": "->",
+                    "name": "punctuation.arrow.ic20"
+                },
+                {
+                    "match": "\\.\\.",
+                    "name": "keyword.operator.range.ic20"
+                }
+            ]
+        },
+        "punctuation": {
+            "patterns": [
+                {
+                    "match": ";",
+                    "name": "punctuation.terminator.semicolon.ic20"
+                },
+                {
+                    "match": ",",
+                    "name": "punctuation.separator.comma.ic20"
+                },
+                {
+                    "match": ":",
+                    "name": "punctuation.separator.colon.ic20"
+                }
+            ]
+        },
+        "slot-access": {
+            "match": "\\.(slot)\\s*(?=\\()",
+            "captures": {
+                "1": {
+                    "name": "keyword.other.slot.ic20"
+                }
+            }
+        },
+        "field-access": {
+            "match": "\\.([a-zA-Z_][a-zA-Z0-9_]*)",
+            "captures": {
+                "1": {
+                    "name": "variable.other.property.ic20"
+                }
+            }
+        },
+        "identifiers": {
+            "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
+            "name": "variable.other.ic20"
+        }
+    }
+}
