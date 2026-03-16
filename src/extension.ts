@@ -84,7 +84,8 @@ function formatDocument(
             continue;
         }
 
-        if (trimmed === "}" || trimmed.startsWith("} else") || trimmed.startsWith("} else {")) {
+        const leadingClose = trimmed.startsWith("}");
+        if (leadingClose) {
             depth = Math.max(0, depth - 1);
         }
 
@@ -93,7 +94,10 @@ function formatDocument(
             edits.push(vscode.TextEdit.replace(line.range, desired));
         }
 
-        const opens = countUnmatchedBraces(trimmed);
+        // When the line started with `}` the pre-decrement already handled that
+        // brace, so skip it when computing the depth adjustment for the next line.
+        const braceSource = leadingClose ? trimmed.slice(1) : trimmed;
+        const opens = countUnmatchedBraces(braceSource);
         depth = Math.max(0, depth + opens);
     }
 
