@@ -4,14 +4,14 @@ use std::str::FromStr;
 
 use clap::{Parser, ValueEnum};
 
-use ic20::bind;
-use ic20::cfg;
-use ic20::codegen;
-use ic20::diagnostic::{Diagnostic, Severity};
-use ic20::opt::{self, Features, OptLevel};
-use ic20::parser;
-use ic20::regalloc;
-use ic20::ssa;
+use ic20c::bind;
+use ic20c::cfg;
+use ic20c::codegen;
+use ic20c::diagnostic::{Diagnostic, Severity};
+use ic20c::opt::{self, Features, OptLevel};
+use ic20c::parser;
+use ic20c::regalloc;
+use ic20c::ssa;
 
 /// An individual optimization pass that can be enabled or disabled with `-f`/`--feature`.
 #[derive(Clone, Copy, ValueEnum)]
@@ -230,7 +230,8 @@ fn main() {
     opt::optimize_program(&mut program, opt_level, &opt_features);
 
     let keep_labels = opt_features.symbolic_labels;
-    let ic10_program = match regalloc::allocate_registers(&mut program, keep_labels, &opt_features) {
+    let ic10_program = match regalloc::allocate_registers(&mut program, keep_labels, &opt_features)
+    {
         Ok(result) => result,
         Err(diagnostics) => {
             emit_diagnostics(&diagnostics, &source, &filename);

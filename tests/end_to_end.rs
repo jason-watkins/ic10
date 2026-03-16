@@ -1,11 +1,11 @@
-use ic20::bind;
-use ic20::cfg;
-use ic20::codegen;
-use ic20::diagnostic::Severity;
-use ic20::opt::{self, OptLevel};
-use ic20::parser;
-use ic20::regalloc;
-use ic20::ssa;
+use ic20c::bind;
+use ic20c::cfg;
+use ic20c::codegen;
+use ic20c::diagnostic::Severity;
+use ic20c::opt::{self, OptLevel};
+use ic20c::parser;
+use ic20c::regalloc;
+use ic20c::ssa;
 
 fn compile(source: &str) -> Result<String, String> {
     let (ast, parse_diagnostics) = parser::parse(source);
@@ -30,7 +30,7 @@ fn compile(source: &str) -> Result<String, String> {
     }
 
     ssa::construct_program(&mut program);
-    let opt_features = ic20::opt::Features::from_opt_level(OptLevel::O2);
+    let opt_features = ic20c::opt::Features::from_opt_level(OptLevel::O2);
     opt::optimize_program(&mut program, OptLevel::O2, &opt_features);
 
     let ic10_program = regalloc::allocate_registers(&mut program, false, &opt_features)
