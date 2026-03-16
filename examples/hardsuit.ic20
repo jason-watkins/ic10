@@ -10,24 +10,25 @@ fn main() {
     let mut filter_count = 0;
     loop {
         if conditions_safe() {
-            helmet.Lock = 0.0;
-            if helmet.Open == 1.0 {
-                suit.AirRelease = 0.0;
-                suit.On = 0.0;
-                suit.Filtration = 0.0;
+            helmet.Lock = false;
+            let helmet_open: bool = helmet.Open;
+            if helmet_open {
+                suit.AirRelease = false;
+                suit.On = false;
+                suit.Filtration = false;
             }
             else {
-                suit.AirRelease = 1.0;
-                suit.On = 1.0;
-                suit.Filtration = 1.0;
+                suit.AirRelease = true;
+                suit.On = true;
+                suit.Filtration = true;
             }
         }
         else {
-            suit.AirRelease = 1.0;
-            suit.On = 1.0;
-            suit.Filtration = 1.0;
-            helmet.Open = 0.0;
-            helmet.Lock = 1.0;
+            suit.AirRelease = true;
+            suit.On = true;
+            suit.Filtration = true;
+            helmet.Open = false;
+            helmet.Lock = true;
         }
         yield;
     }
@@ -36,11 +37,11 @@ fn main() {
 fn filter_if_needed(filter_count: i53) -> i53 {
     let co2 = suit.RatioCarbonDioxide;
     if co2 > 0.30 {
-        suit.Filtration = 1.0;
+        suit.Filtration = true;
         return 120;
     }
     else if co2 <= 0.0 && filter_count <= 0 {
-        suit.Filtration = 0.0;
+        suit.Filtration = false;
         return 0;
     }
     else {
