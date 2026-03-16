@@ -9,8 +9,7 @@ use ic20c::bind;
 use ic20c::diagnostic::{Diagnostic as CompilerDiagnostic, Severity as CompilerSeverity, Span};
 use ic20c::ir::ast::{Item, Program as AstProgram};
 use ic20c::ir::bound::{
-    Block, ElseClause, Expression, ExpressionKind, ForStatement,
-    IfStatement, LetStatement,
+    Block, ElseClause, Expression, ExpressionKind, ForStatement, IfStatement, LetStatement,
     Program as BoundProgram, Statement, SymbolId, SymbolKind as BoundSymbolKind, WhileStatement,
 };
 use ic20c::ir::{Intrinsic, Type};
@@ -61,14 +60,7 @@ impl Backend {
         };
 
         let mut documents = self.documents.lock().unwrap();
-        documents.insert(
-            uri.clone(),
-            DocumentState {
-                source,
-                ast,
-                bound,
-            },
-        );
+        documents.insert(uri.clone(), DocumentState { source, ast, bound });
 
         all_diagnostics
     }
@@ -272,7 +264,11 @@ fn find_hover_in_statement(
             }
         }
         Statement::For(ForStatement {
-            variable, body, lower, upper, ..
+            variable,
+            body,
+            lower,
+            upper,
+            ..
         }) => {
             let info = program.symbols.get(*variable);
             let stmt_span = statement.span();
@@ -293,10 +289,10 @@ fn find_hover_in_statement(
             }
         }
         Statement::Return(ret) => {
-            if let Some(value) = &ret.value {
-                if let Some(result) = find_hover_in_expression(program, value, offset) {
-                    return Some(result);
-                }
+            if let Some(value) = &ret.value
+                && let Some(result) = find_hover_in_expression(program, value, offset)
+            {
+                return Some(result);
             }
         }
         Statement::Sleep(sleep) => {
@@ -387,7 +383,10 @@ fn find_hover_in_expression(
                 }
             }
             Some(HoverResult {
-                text: format!("```ic20\n{}\n```\nBuiltin intrinsic", intrinsic_signature(intrinsic)),
+                text: format!(
+                    "```ic20\n{}\n```\nIC10 intrinsic",
+                    intrinsic_signature(intrinsic)
+                ),
                 span: expression.span,
             })
         }
@@ -417,15 +416,16 @@ fn find_hover_in_expression(
                 return Some(result);
             }
             Some(HoverResult {
-                text: format!("```ic20\n{}\n```\nCast to `{}`", type_name(target), type_name(target)),
+                text: format!(
+                    "```ic20\n{}\n```\nCast to `{}`",
+                    type_name(target),
+                    type_name(target)
+                ),
                 span: expression.span,
             })
         }
         ExpressionKind::DeviceRead { pin, field } => Some(HoverResult {
-            text: format!(
-                "```ic20\n{:?}.{}: f64\n```\nDevice field read",
-                pin, field
-            ),
+            text: format!("```ic20\n{:?}.{}: f64\n```\nDevice field read", pin, field),
             span: expression.span,
         }),
         ExpressionKind::SlotRead {
@@ -442,7 +442,12 @@ fn find_hover_in_expression(
                 span: expression.span,
             })
         }
-        ExpressionKind::BatchRead { hash_expr, field, mode, .. } => {
+        ExpressionKind::BatchRead {
+            hash_expr,
+            field,
+            mode,
+            ..
+        } => {
             if let Some(result) = find_hover_in_expression(program, hash_expr, offset) {
                 return Some(result);
             }
@@ -537,9 +542,7 @@ fn find_definition_in_statement(
         Statement::Expression(expression_statement) => {
             find_definition_in_expression(program, ast, &expression_statement.expression, offset)
         }
-        Statement::If(if_statement) => {
-            find_definition_in_if(program, ast, if_statement, offset)
-        }
+        Statement::If(if_statement) => find_definition_in_if(program, ast, if_statement, offset),
         Statement::While(WhileStatement {
             condition, body, ..
         }) => {
@@ -607,9 +610,7 @@ fn find_definition_in_expression(
         return None;
     }
     match &expression.kind {
-        ExpressionKind::Variable(symbol_id) => {
-            find_symbol_definition(program, ast, *symbol_id)
-        }
+        ExpressionKind::Variable(symbol_id) => find_symbol_definition(program, ast, *symbol_id),
         ExpressionKind::Call(symbol_id, args) => {
             for arg in args {
                 if let Some(result) = find_definition_in_expression(program, ast, arg, offset) {
@@ -643,14 +644,10 @@ fn find_definition_in_expression(
             if_true,
             if_false,
         } => {
-            if let Some(result) =
-                find_definition_in_expression(program, ast, condition, offset)
-            {
+            if let Some(result) = find_definition_in_expression(program, ast, condition, offset) {
                 return Some(result);
             }
-            if let Some(result) =
-                find_definition_in_expression(program, ast, if_true, offset)
-            {
+            if let Some(result) = find_definition_in_expression(program, ast, if_true, offset) {
                 return Some(result);
             }
             find_definition_in_expression(program, ast, if_false, offset)
@@ -903,7 +900,9 @@ impl LanguageServer for Backend {
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
-        self.client.publish_diagnostics(uri.clone(), vec![], None).await;
+        self.client
+            .publish_diagnostics(uri.clone(), vec![], None)
+            .await;
         self.documents.lock().unwrap().remove(&uri);
     }
 
@@ -919,16 +918,16 @@ impl LanguageServer for Backend {
         let offset = position_to_offset(&state.source, position);
 
         // Try bound IR hover first (more information available)
-        if let Some(bound) = &state.bound {
-            if let Some(result) = find_hover_in_bound(bound, offset) {
-                return Ok(Some(Hover {
-                    contents: HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: result.text,
-                    }),
-                    range: Some(span_to_range(&state.source, result.span)),
-                }));
-            }
+        if let Some(bound) = &state.bound
+            && let Some(result) = find_hover_in_bound(bound, offset)
+        {
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: result.text,
+                }),
+                range: Some(span_to_range(&state.source, result.span)),
+            }));
         }
 
         // Fall back to AST-level hover for consts and devices
@@ -938,11 +937,7 @@ impl LanguageServer for Backend {
                     return Ok(Some(Hover {
                         contents: HoverContents::Markup(MarkupContent {
                             kind: MarkupKind::Markdown,
-                            value: format!(
-                                "```ic20\nconst {}: {}\n```",
-                                c.name,
-                                type_name(&c.ty)
-                            ),
+                            value: format!("```ic20\nconst {}: {}\n```", c.name, type_name(&c.ty)),
                         }),
                         range: Some(span_to_range(&state.source, c.span)),
                     }));
@@ -977,14 +972,14 @@ impl LanguageServer for Backend {
 
         let offset = position_to_offset(&state.source, position);
 
-        if let Some(bound) = &state.bound {
-            if let Some(def) = find_definition_in_bound(bound, &state.ast, offset) {
-                let range = span_to_range(&state.source, def.span);
-                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                    uri: uri.clone(),
-                    range,
-                })));
-            }
+        if let Some(bound) = &state.bound
+            && let Some(def) = find_definition_in_bound(bound, &state.ast, offset)
+        {
+            let range = span_to_range(&state.source, def.span);
+            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                uri: uri.clone(),
+                range,
+            })));
         }
 
         Ok(None)
