@@ -214,6 +214,28 @@
         "control-keywords": {
             "patterns": [
                 {
+                    "match": "'([a-zA-Z_][a-zA-Z0-9_]*)\\s*(:)",
+                    "captures": {
+                        "1": {
+                            "name": "entity.name.label.ic20"
+                        },
+                        "2": {
+                            "name": "punctuation.separator.colon.ic20"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b(break|continue)\\s+'([a-zA-Z_][a-zA-Z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.control.ic20"
+                        },
+                        "2": {
+                            "name": "entity.name.label.ic20"
+                        }
+                    }
+                },
+                {
                     "match": "\\b(if|else|loop|while|for|in|break|continue|return|yield|sleep)\\b",
                     "name": "keyword.control.ic20"
                 }
