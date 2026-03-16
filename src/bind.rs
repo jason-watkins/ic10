@@ -287,19 +287,41 @@ impl Binder {
                 let init = self.bind_expression(&s.init);
                 let actual_type = init.ty;
 
-                let final_type = match s.ty {
+                let is_device_read = matches!(
+                    init.kind,
+                    ExpressionKind::DeviceRead { .. }
+                        | ExpressionKind::SlotRead { .. }
+                        | ExpressionKind::BatchRead { .. }
+                );
+
+                let (init, final_type) = match s.ty {
                     Some(annotation_type) => {
-                        if annotation_type != actual_type {
+                        if annotation_type == actual_type {
+                            (init, annotation_type)
+                        } else if is_device_read
+                            && matches!(
+                                (actual_type, annotation_type),
+                                (Type::F64, Type::Bool) | (Type::F64, Type::I53)
+                            )
+                        {
+                            let span = s.init.span;
+                            let coerced = Expression {
+                                kind: ExpressionKind::Cast(Box::new(init), annotation_type),
+                                ty: annotation_type,
+                                span,
+                            };
+                            (coerced, annotation_type)
+                        } else {
                             self.error(
                                 s.init.span,
                                 format!(
                                     "type mismatch: declared `{annotation_type:?}` but initializer has type `{actual_type:?}`"
                                 ),
                             );
+                            (init, annotation_type)
                         }
-                        annotation_type
                     }
-                    None => actual_type,
+                    None => (init, actual_type),
                 };
 
                 let symbol_id = self.allocate_symbol(SymbolInfo {
@@ -1270,6 +1292,22 @@ mod tests {
         assert!(has_error("fn main() { let x: f64 = 42; }", "type mismatch"));
     }
 
+    #[test]
+    fn f64_to_bool_without_device_read_is_error() {
+        assert!(has_error(
+            "fn main() { let x: f64 = 1.0; let b: bool = x; }",
+            "type mismatch"
+        ));
+    }
+
+    #[test]
+    fn f64_to_i53_without_device_read_is_error() {
+        assert!(has_error(
+            "fn main() { let x: f64 = 1.0; let n: i53 = x; }",
+            "type mismatch"
+        ));
+    }
+
     // 4.3 / 4.4 — const folding
     #[test]
     fn const_folds_to_literal() {
@@ -1388,6 +1426,48 @@ mod tests {
             panic!("expected assign");
         };
         assert!(matches!(s.target, AssignmentTarget::DeviceField { .. }));
+    }
+
+    #[test]
+    fn device_field_write_accepts_bool() {
+        bind_ok("device light: d0; fn main() { light.On = true; }");
+    }
+
+    #[test]
+    fn device_field_write_accepts_i53() {
+        bind_ok("device light: d0; fn main() { light.On = 1; }");
+    }
+
+    #[test]
+    fn device_read_with_bool_annotation() {
+        let program =
+            bind_ok("device sensor: d0; fn main() { let on: bool = sensor.On; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        assert_eq!(s.init.ty, Type::Bool);
+        assert!(
+            matches!(s.init.kind, ExpressionKind::Cast(_, Type::Bool)),
+            "expected implicit cast to bool, got {:?}",
+            s.init.kind
+        );
+        assert_eq!(program.symbols.get(s.symbol_id).ty, Type::Bool);
+    }
+
+    #[test]
+    fn device_read_with_i53_annotation() {
+        let program =
+            bind_ok("device sensor: d0; fn main() { let count: i53 = sensor.Count; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        assert_eq!(s.init.ty, Type::I53);
+        assert!(
+            matches!(s.init.kind, ExpressionKind::Cast(_, Type::I53)),
+            "expected implicit cast to i53, got {:?}",
+            s.init.kind
+        );
+        assert_eq!(program.symbols.get(s.symbol_id).ty, Type::I53);
     }
 
     // 4.10 / 4.11 — type inference and checking

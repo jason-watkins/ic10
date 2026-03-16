@@ -300,7 +300,7 @@ fn fold_cast(value: f64, source: Type, target: Type) -> f64 {
         | (Type::Bool, Type::F64) => value,
         (Type::F64, Type::I53) => value.trunc(),
         (Type::I53, Type::Bool) | (Type::F64, Type::Bool) => {
-            unreachable!("cast to bool is a compile error and should have been rejected by resolve")
+            if value != 0.0 { 1.0 } else { 0.0 }
         }
         (Type::Unit, _) | (_, Type::Unit) => {
             unreachable!(

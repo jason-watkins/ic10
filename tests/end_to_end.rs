@@ -84,6 +84,71 @@ fn simple_variable() {
 }
 
 #[test]
+fn device_write_bool_value() {
+    let output =
+        compile("device light: d0;\nfn main() { let on: bool = true; light.On = on; }").unwrap();
+    assert!(
+        output.contains("s d0 On"),
+        "expected device write: {output}"
+    );
+}
+
+#[test]
+fn device_write_bool_literal() {
+    let output = compile("device light: d0;\nfn main() { light.On = true; }").unwrap();
+    assert!(
+        output.contains("s d0 On"),
+        "expected device write: {output}"
+    );
+}
+
+#[test]
+fn device_read_bool_annotation() {
+    let output = compile(
+        r#"
+        device sensor: d0;
+        device out: d1;
+        fn main() {
+            let on: bool = sensor.On;
+            out.Setting = on;
+        }
+        "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("l r") && output.contains("d0 On"),
+        "expected device read: {output}"
+    );
+    assert!(
+        output.contains("s d1 Setting"),
+        "expected device write: {output}"
+    );
+}
+
+#[test]
+fn device_read_i53_annotation() {
+    let output = compile(
+        r#"
+        device sensor: d0;
+        device out: d1;
+        fn main() {
+            let count: i53 = sensor.Count;
+            out.Setting = count;
+        }
+        "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("l r") && output.contains("d0 Count"),
+        "expected device read: {output}"
+    );
+    assert!(
+        output.contains("s d1 Setting"),
+        "expected device write: {output}"
+    );
+}
+
+#[test]
 fn schmitt_trigger_compiles() {
     let output = compile_file("tests/examples/schmitt_trigger.ic20");
     assert!(
