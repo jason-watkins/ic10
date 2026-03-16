@@ -89,8 +89,8 @@ pub enum Statement {
     If(IfStatement),
     While(WhileStatement),
     For(ForStatement),
-    Break(Span),
-    Continue(Span),
+    Break(BreakStatement),
+    Continue(ContinueStatement),
     Return(ReturnStatement),
     Yield(Span),
     Sleep(SleepStatement),
@@ -106,8 +106,8 @@ impl Statement {
             Statement::If(s) => s.span,
             Statement::While(s) => s.span,
             Statement::For(s) => s.span,
-            Statement::Break(span) => *span,
-            Statement::Continue(span) => *span,
+            Statement::Break(s) => s.span,
+            Statement::Continue(s) => s.span,
             Statement::Return(s) => s.span,
             Statement::Yield(span) => *span,
             Statement::Sleep(s) => s.span,
@@ -178,6 +178,7 @@ pub enum ElseClause {
 /// `while cond { body }`
 #[derive(Debug, Clone)]
 pub struct WhileStatement {
+    pub label: Option<String>,
     pub condition: Expression,
     pub body: Block,
     pub span: Span,
@@ -186,6 +187,7 @@ pub struct WhileStatement {
 /// `for var in lower..upper { body }` — loop variable resolved to a `SymbolId`.
 #[derive(Debug, Clone)]
 pub struct ForStatement {
+    pub label: Option<String>,
     pub variable: SymbolId,
     pub lower: Expression,
     pub upper: Expression,
@@ -200,6 +202,20 @@ pub struct ForStatement {
 #[derive(Debug, Clone)]
 pub struct ReturnStatement {
     pub value: Option<Expression>,
+    pub span: Span,
+}
+
+/// `break ['label];`
+#[derive(Debug, Clone)]
+pub struct BreakStatement {
+    pub label: Option<String>,
+    pub span: Span,
+}
+
+/// `continue ['label];`
+#[derive(Debug, Clone)]
+pub struct ContinueStatement {
+    pub label: Option<String>,
     pub span: Span,
 }
 

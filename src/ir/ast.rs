@@ -74,10 +74,10 @@ pub enum Statement {
     While(WhileStatement),
     /// `for ident in expr..expr { … }` (§6.8).
     For(ForStatement),
-    /// `break;` (§6.9).
-    Break(Span),
-    /// `continue;` (§6.10).
-    Continue(Span),
+    /// `break ['label];` (§6.9).
+    Break(BreakStatement),
+    /// `continue ['label];` (§6.10).
+    Continue(ContinueStatement),
     /// `return [expr];` (§6.11).
     Return(ReturnStatement),
     /// `yield;` (§6.12).
@@ -152,9 +152,10 @@ pub enum ElseClause {
     If(Box<IfStatement>),
 }
 
-/// `while cond { body }`; also the desugared form of `loop { body }`
+/// `['label:] while cond { body }`; also the desugared form of `loop { body }`
 #[derive(Debug, Clone)]
 pub struct WhileStatement {
+    pub label: Option<String>,
     pub cond: Expression,
     pub body: Block,
     pub span: Span,
@@ -166,6 +167,7 @@ pub struct WhileStatement {
 /// - `(lower..upper).step_by(n)` for custom step
 #[derive(Debug, Clone)]
 pub struct ForStatement {
+    pub label: Option<String>,
     pub var: String,
     pub lower: Expression,
     pub upper: Expression,
@@ -180,6 +182,20 @@ pub struct ForStatement {
 #[derive(Debug, Clone)]
 pub struct ReturnStatement {
     pub value: Option<Expression>,
+    pub span: Span,
+}
+
+/// `break ['label];`
+#[derive(Debug, Clone)]
+pub struct BreakStatement {
+    pub label: Option<String>,
+    pub span: Span,
+}
+
+/// `continue ['label];`
+#[derive(Debug, Clone)]
+pub struct ContinueStatement {
+    pub label: Option<String>,
     pub span: Span,
 }
 

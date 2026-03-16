@@ -105,6 +105,8 @@ pub enum Punctuator {
 pub enum TokenKind {
     Literal(Literal),
     Identifier(String),
+    /// A label: `'name` (used for labeled loops, break, and continue).
+    Label(String),
     Keyword(Keyword),
     Reserved(Reserved),
     Operator(Operator),
@@ -327,8 +329,29 @@ impl<'src> Lexer<'src> {
             return Some(self.lex_string(start));
         }
 
+        // Label: 'identifier
+        if b == b'\'' {
+            return Some(self.lex_label(start));
+        }
+
         // Operators and punctuators
         self.lex_operator(start)
+    }
+
+    fn lex_label(&mut self, start: usize) -> Token {
+        self.pos += 1; // skip the leading '
+        let name_start = self.pos;
+        while !self.at_end() && (self.peek().is_ascii_alphanumeric() || self.peek() == b'_') {
+            self.pos += 1;
+        }
+        let name = self.source[name_start..self.pos].to_string();
+        if name.is_empty() {
+            self.diagnostics.push(Diagnostic::error(
+                Span::new(start, self.pos),
+                "expected identifier after `'`",
+            ));
+        }
+        Token::new(TokenKind::Label(name), Span::new(start, self.pos))
     }
 
     fn lex_ident_or_keyword(&mut self, start: usize) -> Token {
@@ -1273,5 +1296,36 @@ fn main() {
                 TokenKind::Identifier("Occupied".into()),
             ]
         );
+    }
+
+    #[test]
+    fn label_token() {
+        assert_eq!(
+            kinds("'outer: loop"),
+            vec![
+                TokenKind::Label("outer".into()),
+                TokenKind::Punctuator(Punctuator::Colon),
+                TokenKind::Keyword(Keyword::Loop),
+            ]
+        );
+    }
+
+    #[test]
+    fn label_in_break() {
+        assert_eq!(
+            kinds("break 'done;"),
+            vec![
+                TokenKind::Keyword(Keyword::Break),
+                TokenKind::Label("done".into()),
+                TokenKind::Punctuator(Punctuator::Semi),
+            ]
+        );
+    }
+
+    #[test]
+    fn bare_apostrophe_error() {
+        let d = diags("'");
+        assert_eq!(d.len(), 1);
+        assert!(d[0].message.contains("expected identifier after"));
     }
 }

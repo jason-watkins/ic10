@@ -1,7 +1,7 @@
 use crate::diagnostic::{Diagnostic, Span};
 use crate::ir::ast::{
-    AssignStatement, AssignmentTarget, BatchWriteStatement, Block, CallExpression,
-    ConstDeclaration, DeviceDeclaration, ElseClause, Expression, ExpressionKind,
+    AssignStatement, AssignmentTarget, BatchWriteStatement, Block, BreakStatement, CallExpression,
+    ConstDeclaration, ContinueStatement, DeviceDeclaration, ElseClause, Expression, ExpressionKind,
     ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement, Item, LetStatement,
     LiteralKind, Parameter, Program, ReturnStatement, SleepStatement, Statement, WhileStatement,
 };
@@ -355,11 +355,15 @@ impl Parser {
         let result = match self.peek_kind() {
             TokenKind::Keyword(Keyword::Let) => self.parse_let_statement().map(Statement::Let),
             TokenKind::Keyword(Keyword::If) => self.parse_if_statement().map(Statement::If),
-            TokenKind::Keyword(Keyword::Loop) => self.parse_loop_statement().map(Statement::While),
-            TokenKind::Keyword(Keyword::While) => {
-                self.parse_while_statement().map(Statement::While)
+            TokenKind::Keyword(Keyword::Loop) => {
+                self.parse_loop_statement(None).map(Statement::While)
             }
-            TokenKind::Keyword(Keyword::For) => self.parse_for_statement().map(Statement::For),
+            TokenKind::Keyword(Keyword::While) => {
+                self.parse_while_statement(None).map(Statement::While)
+            }
+            TokenKind::Keyword(Keyword::For) => {
+                self.parse_for_statement(None).map(Statement::For)
+            }
             TokenKind::Keyword(Keyword::Return) => {
                 self.parse_return_statement().map(Statement::Return)
             }
@@ -367,15 +371,28 @@ impl Parser {
                 self.parse_sleep_statement().map(Statement::Sleep)
             }
             TokenKind::Keyword(Keyword::Break) => {
-                let span = self.advance().span;
+                let start = self.advance().span;
+                let label = self.accept_label();
                 self.expect(&TokenKind::Punctuator(Punctuator::Semi))
-                    .map(|end| Statement::Break(Span::new(span.start, end.end)))
+                    .map(|end| {
+                        Statement::Break(BreakStatement {
+                            label,
+                            span: Span::new(start.start, end.end),
+                        })
+                    })
             }
             TokenKind::Keyword(Keyword::Continue) => {
-                let span = self.advance().span;
+                let start = self.advance().span;
+                let label = self.accept_label();
                 self.expect(&TokenKind::Punctuator(Punctuator::Semi))
-                    .map(|end| Statement::Continue(Span::new(span.start, end.end)))
+                    .map(|end| {
+                        Statement::Continue(ContinueStatement {
+                            label,
+                            span: Span::new(start.start, end.end),
+                        })
+                    })
             }
+            TokenKind::Label(_) => self.parse_labeled_statement(),
             TokenKind::Keyword(Keyword::Yield) => {
                 let span = self.advance().span;
                 self.expect(&TokenKind::Punctuator(Punctuator::Semi))
@@ -525,7 +542,7 @@ impl Parser {
     }
 
     /// Parse a `loop` statement (§6.6) and desugar it to `while true { … }`.
-    fn parse_loop_statement(&mut self) -> Result<WhileStatement, ()> {
+    fn parse_loop_statement(&mut self, label: Option<String>) -> Result<WhileStatement, ()> {
         let start = self.expect(&TokenKind::Keyword(Keyword::Loop))?;
         let body = self.parse_block()?;
         let span = Span::new(start.start, body.span.end);
@@ -533,16 +550,67 @@ impl Parser {
             kind: ExpressionKind::Literal(LiteralKind::Bool(true)),
             span: Span::new(start.start, start.end),
         };
-        Ok(WhileStatement { cond, body, span })
+        Ok(WhileStatement {
+            label,
+            cond,
+            body,
+            span,
+        })
     }
 
     /// Parse a `while` statement (§6.7).
-    fn parse_while_statement(&mut self) -> Result<WhileStatement, ()> {
+    fn parse_while_statement(&mut self, label: Option<String>) -> Result<WhileStatement, ()> {
         let start = self.expect(&TokenKind::Keyword(Keyword::While))?;
         let cond = self.parse_expression()?;
         let body = self.parse_block()?;
         let span = Span::new(start.start, body.span.end);
-        Ok(WhileStatement { cond, body, span })
+        Ok(WhileStatement {
+            label,
+            cond,
+            body,
+            span,
+        })
+    }
+
+    /// Accept a `Label` token if present, returning the label name.
+    fn accept_label(&mut self) -> Option<String> {
+        if let TokenKind::Label(name) = self.peek_kind() {
+            let name = name.clone();
+            self.advance();
+            Some(name)
+        } else {
+            None
+        }
+    }
+
+    /// Parse a labeled statement: `'label: loop { … }` / `'label: while … { … }` / `'label: for …`.
+    fn parse_labeled_statement(&mut self) -> Result<Statement, ()> {
+        let label = if let TokenKind::Label(name) = self.peek_kind() {
+            let name = name.clone();
+            self.advance();
+            name
+        } else {
+            unreachable!()
+        };
+        self.expect(&TokenKind::Punctuator(Punctuator::Colon))?;
+        match self.peek_kind() {
+            TokenKind::Keyword(Keyword::Loop) => {
+                self.parse_loop_statement(Some(label)).map(Statement::While)
+            }
+            TokenKind::Keyword(Keyword::While) => {
+                self.parse_while_statement(Some(label)).map(Statement::While)
+            }
+            TokenKind::Keyword(Keyword::For) => {
+                self.parse_for_statement(Some(label)).map(Statement::For)
+            }
+            _ => {
+                self.diagnostics.push(Diagnostic::error(
+                    self.current_span(),
+                    "labels can only be attached to `loop`, `while`, or `for` statements",
+                ));
+                Err(())
+            }
+        }
     }
 
     /// Parse a `for` statement (§6.8).
@@ -552,7 +620,7 @@ impl Parser {
     ///   `for i in (a..b).rev() { }`    — reverse iteration
     ///   `for i in (a..b).step_by(n) { }` — custom step
     ///   Chaining: `(a..=b).rev().step_by(n)`
-    fn parse_for_statement(&mut self) -> Result<ForStatement, ()> {
+    fn parse_for_statement(&mut self, label: Option<String>) -> Result<ForStatement, ()> {
         let start = self.expect(&TokenKind::Keyword(Keyword::For))?;
         let (var, _) = self.expect_identifier()?;
         self.expect(&TokenKind::Keyword(Keyword::In))?;
@@ -624,6 +692,7 @@ impl Parser {
         let body = self.parse_block()?;
         let span = Span::new(start.start, body.span.end);
         Ok(ForStatement {
+            label,
             var,
             lower,
             upper,
@@ -1054,6 +1123,7 @@ fn token_kind_name(kind: &TokenKind) -> &'static str {
         TokenKind::Literal(Literal::F64(_)) => "float literal",
         TokenKind::Literal(Literal::String(_)) => "string literal",
         TokenKind::Identifier(_) => "identifier",
+        TokenKind::Label(_) => "label",
         TokenKind::Keyword(Keyword::Let) => "`let`",
         TokenKind::Keyword(Keyword::Const) => "`const`",
         TokenKind::Keyword(Keyword::Fn) => "`fn`",

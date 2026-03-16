@@ -12,6 +12,7 @@ use crate::ir::{BinaryOperator, Type};
 
 /// Loop context for break/continue targeting.
 struct LoopContext {
+    label: Option<String>,
     continue_target: BlockId,
     break_target: BlockId,
 }
@@ -344,23 +345,39 @@ impl Builder {
                 self.lower_for(for_statement);
             }
 
-            Statement::Break(span) => {
-                if let Some(loop_context) = self.loop_stack.last() {
-                    let target = loop_context.break_target;
+            Statement::Break(statement) => {
+                let target = if let Some(ref label) = statement.label {
+                    self.loop_stack
+                        .iter()
+                        .rev()
+                        .find(|ctx| ctx.label.as_deref() == Some(label))
+                        .map(|ctx| ctx.break_target)
+                } else {
+                    self.loop_stack.last().map(|ctx| ctx.break_target)
+                };
+                if let Some(target) = target {
                     self.terminate_and_jump(target);
                     let unreachable = self.new_block();
                     self.switch_to(unreachable);
-                    self.unreachable_after = Some(*span);
+                    self.unreachable_after = Some(statement.span);
                 }
             }
 
-            Statement::Continue(span) => {
-                if let Some(loop_context) = self.loop_stack.last() {
-                    let target = loop_context.continue_target;
+            Statement::Continue(statement) => {
+                let target = if let Some(ref label) = statement.label {
+                    self.loop_stack
+                        .iter()
+                        .rev()
+                        .find(|ctx| ctx.label.as_deref() == Some(label))
+                        .map(|ctx| ctx.continue_target)
+                } else {
+                    self.loop_stack.last().map(|ctx| ctx.continue_target)
+                };
+                if let Some(target) = target {
                     self.terminate_and_jump(target);
                     let unreachable = self.new_block();
                     self.switch_to(unreachable);
-                    self.unreachable_after = Some(*span);
+                    self.unreachable_after = Some(statement.span);
                 }
             }
 
@@ -518,6 +535,7 @@ impl Builder {
         }
 
         self.loop_stack.push(LoopContext {
+            label: while_statement.label.clone(),
             continue_target: check_block,
             break_target: exit_block,
         });
@@ -667,6 +685,7 @@ impl Builder {
         self.terminate_and_branch(guard_cond, exit_block, body_block);
 
         self.loop_stack.push(LoopContext {
+            label: for_statement.label.clone(),
             continue_target: continue_block,
             break_target: exit_block,
         });
@@ -1571,5 +1590,105 @@ mod tests {
             1,
             "only one warning for the first unreachable statement"
         );
+    }
+
+    #[test]
+    fn labeled_break_targets_outer_loop() {
+        let program = build_cfg("fn main() { 'outer: loop { loop { break 'outer; } } }");
+        let main = get_function(&program, "main");
+        let outer_exit = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopEnd(1)))
+            .expect("outer loop should have an exit block");
+        let inner_body = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopStart(2)))
+            .expect("inner loop body should exist");
+        match &inner_body.terminator {
+            Terminator::Jump(target) => {
+                assert_eq!(
+                    target.0,
+                    main.blocks
+                        .iter()
+                        .position(|b| std::ptr::eq(b, outer_exit))
+                        .unwrap(),
+                    "break 'outer should jump to outer loop exit"
+                );
+            }
+            other => panic!("expected Jump terminator, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn labeled_continue_targets_outer_loop() {
+        let program = build_cfg("fn main() { 'outer: loop { loop { continue 'outer; } yield; } }");
+        let main = get_function(&program, "main");
+        let outer_continue = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopContinue(1)))
+            .expect("outer loop should have a continue block");
+        let inner_body = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopStart(2)))
+            .expect("inner loop body should exist");
+        match &inner_body.terminator {
+            Terminator::Jump(target) => {
+                assert_eq!(
+                    target.0,
+                    main.blocks
+                        .iter()
+                        .position(|b| std::ptr::eq(b, outer_continue))
+                        .unwrap(),
+                    "continue 'outer should jump to outer loop continue"
+                );
+            }
+            other => panic!("expected Jump terminator, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn labeled_break_in_for_loop() {
+        let program =
+            build_cfg("fn main() { 'outer: for i in 0..3 { for j in 0..3 { break 'outer; } } }");
+        let main = get_function(&program, "main");
+        assert!(
+            main.blocks
+                .iter()
+                .any(|b| matches!(b.role, BlockRole::LoopEnd(1))),
+            "outer for-loop should have an exit block"
+        );
+    }
+
+    #[test]
+    fn unlabeled_break_still_targets_inner_loop() {
+        let program = build_cfg("fn main() { 'outer: loop { loop { break; } yield; } }");
+        let main = get_function(&program, "main");
+        let inner_exit = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopEnd(2)))
+            .expect("inner loop should have an exit block");
+        let inner_body = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopStart(2)))
+            .expect("inner loop body should exist");
+        match &inner_body.terminator {
+            Terminator::Jump(target) => {
+                assert_eq!(
+                    target.0,
+                    main.blocks
+                        .iter()
+                        .position(|b| std::ptr::eq(b, inner_exit))
+                        .unwrap(),
+                    "unlabeled break should jump to inner loop exit, not outer"
+                );
+            }
+            other => panic!("expected Jump terminator, got {:?}", other),
+        }
     }
 }

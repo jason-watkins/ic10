@@ -9,10 +9,11 @@ use crate::ir::ast::{
     LiteralKind, Program as AstProgram, Statement as AstStatement,
 };
 use crate::ir::bound::{
-    AssignStatement, AssignmentTarget, BatchWriteStatement, Block, ElseClause, Expression,
-    ExpressionKind, ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement,
-    LetStatement, Parameter, Program, ReturnStatement, SleepStatement, Statement, SymbolId,
-    SymbolInfo, SymbolKind, SymbolTable, WhileStatement,
+    AssignStatement, AssignmentTarget, BatchWriteStatement, Block, BreakStatement,
+    ContinueStatement, ElseClause, Expression, ExpressionKind, ExpressionStatement,
+    ForStatement, FunctionDeclaration, IfStatement, LetStatement, Parameter, Program,
+    ReturnStatement, SleepStatement, Statement, SymbolId, SymbolInfo, SymbolKind, SymbolTable,
+    WhileStatement,
 };
 use crate::ir::{BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
@@ -371,6 +372,7 @@ impl Binder {
                 }
                 let body = self.bind_block(&s.body, return_type);
                 Statement::While(WhileStatement {
+                    label: s.label.clone(),
                     condition,
                     body,
                     span: s.span,
@@ -422,6 +424,7 @@ impl Binder {
                 let body = self.bind_block(&s.body, return_type);
                 self.pop_scope();
                 Statement::For(ForStatement {
+                    label: s.label.clone(),
                     variable,
                     lower,
                     upper,
@@ -433,8 +436,14 @@ impl Binder {
                 })
             }
 
-            AstStatement::Break(span) => Statement::Break(*span),
-            AstStatement::Continue(span) => Statement::Continue(*span),
+            AstStatement::Break(s) => Statement::Break(BreakStatement {
+                label: s.label.clone(),
+                span: s.span,
+            }),
+            AstStatement::Continue(s) => Statement::Continue(ContinueStatement {
+                label: s.label.clone(),
+                span: s.span,
+            }),
 
             AstStatement::Return(s) => {
                 let value = s.value.as_ref().map(|v| self.bind_expression(v));
