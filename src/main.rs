@@ -260,7 +260,7 @@ fn main() {
             }
         }
         None => {
-            print!("{}", ic10_text);
+            println!("{}", ic10_text);
         }
     }
 }

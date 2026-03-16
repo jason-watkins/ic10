@@ -546,19 +546,90 @@ impl Parser {
     }
 
     /// Parse a `for` statement (§6.8).
+    /// Supports:
+    ///   `for i in a..b { }`            — exclusive, ascending, step 1
+    ///   `for i in a..=b { }`           — inclusive, ascending, step 1
+    ///   `for i in (a..b).rev() { }`    — reverse iteration
+    ///   `for i in (a..b).step_by(n) { }` — custom step
+    ///   Chaining: `(a..=b).rev().step_by(n)`
     fn parse_for_statement(&mut self) -> Result<ForStatement, ()> {
         let start = self.expect(&TokenKind::Keyword(Keyword::For))?;
         let (var, _) = self.expect_identifier()?;
         self.expect(&TokenKind::Keyword(Keyword::In))?;
+
+        let parenthesized =
+            self.accept(&TokenKind::Punctuator(Punctuator::LParen)).is_some();
+
         let lower = self.parse_expression()?;
-        self.expect(&TokenKind::Punctuator(Punctuator::DotDot))?;
+
+        let inclusive = if self.accept(&TokenKind::Punctuator(Punctuator::DotDotEq)).is_some() {
+            true
+        } else {
+            self.expect(&TokenKind::Punctuator(Punctuator::DotDot))?;
+            false
+        };
+
         let upper = self.parse_expression()?;
+
+        if parenthesized {
+            self.expect(&TokenKind::Punctuator(Punctuator::RParen))?;
+        }
+
+        let mut reverse = false;
+        let mut step = None;
+
+        while self.accept(&TokenKind::Punctuator(Punctuator::Dot)).is_some() {
+            let (method, method_span) = self.expect_identifier()?;
+            match method.as_str() {
+                "rev" => {
+                    self.expect(&TokenKind::Punctuator(Punctuator::LParen))?;
+                    self.expect(&TokenKind::Punctuator(Punctuator::RParen))?;
+                    if reverse {
+                        self.diagnostics.push(Diagnostic::error(
+                            method_span,
+                            "duplicate `.rev()` on range",
+                        ));
+                    }
+                    reverse = true;
+                }
+                "step_by" => {
+                    self.expect(&TokenKind::Punctuator(Punctuator::LParen))?;
+                    let step_expr = self.parse_expression()?;
+                    self.expect(&TokenKind::Punctuator(Punctuator::RParen))?;
+                    if step.is_some() {
+                        self.diagnostics.push(Diagnostic::error(
+                            method_span,
+                            "duplicate `.step_by()` on range",
+                        ));
+                    }
+                    step = Some(step_expr);
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        method_span,
+                        format!("unknown range method `.{method}()`; expected `.rev()` or `.step_by()`"),
+                    ));
+                    if self.accept(&TokenKind::Punctuator(Punctuator::LParen)).is_some() {
+                        while self.peek_kind() != &TokenKind::Punctuator(Punctuator::RParen)
+                            && self.peek_kind() != &TokenKind::Eof
+                        {
+                            self.advance();
+                        }
+                        let _ = self.accept(&TokenKind::Punctuator(Punctuator::RParen));
+                    }
+                }
+            }
+        }
+
         let body = self.parse_block()?;
         let span = Span::new(start.start, body.span.end);
         Ok(ForStatement {
             var,
             lower,
             upper,
+            inclusive,
+            reverse,
+            step,
             body,
             span,
         })
@@ -1039,6 +1110,7 @@ fn token_kind_name(kind: &TokenKind) -> &'static str {
         TokenKind::Punctuator(Punctuator::Dot) => "`.`",
         TokenKind::Punctuator(Punctuator::Arrow) => "`->`",
         TokenKind::Punctuator(Punctuator::DotDot) => "`..`",
+        TokenKind::Punctuator(Punctuator::DotDotEq) => "`..=`",
         TokenKind::Eof => "end of file",
     }
 }
@@ -1511,6 +1583,9 @@ mod tests {
                 statement.upper.kind,
                 ExpressionKind::Literal(LiteralKind::I53(10))
             ));
+            assert!(!statement.inclusive);
+            assert!(!statement.reverse);
+            assert!(statement.step.is_none());
             assert!(statement.body.stmts.is_empty());
         } else {
             panic!("expected for statement");
@@ -1528,6 +1603,80 @@ mod tests {
             assert!(matches!(
                 &statement.upper.kind,
                 ExpressionKind::Variable(name) if name == "hi"
+            ));
+            assert!(!statement.inclusive);
+            assert!(!statement.reverse);
+            assert!(statement.step.is_none());
+        } else {
+            panic!("expected for statement");
+        }
+    }
+
+    #[test]
+    fn for_statement_inclusive_range() {
+        let statements = fn_statements("fn f() { for i in 0..=5 { } }");
+        if let Statement::For(statement) = &statements[0] {
+            assert_eq!(statement.var, "i");
+            assert!(matches!(
+                statement.lower.kind,
+                ExpressionKind::Literal(LiteralKind::I53(0))
+            ));
+            assert!(matches!(
+                statement.upper.kind,
+                ExpressionKind::Literal(LiteralKind::I53(5))
+            ));
+            assert!(statement.inclusive);
+            assert!(!statement.reverse);
+            assert!(statement.step.is_none());
+        } else {
+            panic!("expected for statement");
+        }
+    }
+
+    #[test]
+    fn for_statement_reverse() {
+        let statements = fn_statements("fn f() { for i in (0..10).rev() { } }");
+        if let Statement::For(statement) = &statements[0] {
+            assert!(matches!(
+                statement.lower.kind,
+                ExpressionKind::Literal(LiteralKind::I53(0))
+            ));
+            assert!(matches!(
+                statement.upper.kind,
+                ExpressionKind::Literal(LiteralKind::I53(10))
+            ));
+            assert!(!statement.inclusive);
+            assert!(statement.reverse);
+            assert!(statement.step.is_none());
+        } else {
+            panic!("expected for statement");
+        }
+    }
+
+    #[test]
+    fn for_statement_step_by() {
+        let statements = fn_statements("fn f() { for i in (0..10).step_by(2) { } }");
+        if let Statement::For(statement) = &statements[0] {
+            assert!(!statement.inclusive);
+            assert!(!statement.reverse);
+            assert!(matches!(
+                statement.step.as_ref().unwrap().kind,
+                ExpressionKind::Literal(LiteralKind::I53(2))
+            ));
+        } else {
+            panic!("expected for statement");
+        }
+    }
+
+    #[test]
+    fn for_statement_inclusive_rev_step_by() {
+        let statements = fn_statements("fn f() { for i in (0..=10).rev().step_by(3) { } }");
+        if let Statement::For(statement) = &statements[0] {
+            assert!(statement.inclusive);
+            assert!(statement.reverse);
+            assert!(matches!(
+                statement.step.as_ref().unwrap().kind,
+                ExpressionKind::Literal(LiteralKind::I53(3))
             ));
         } else {
             panic!("expected for statement");

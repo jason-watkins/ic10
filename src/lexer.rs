@@ -97,6 +97,7 @@ pub enum Punctuator {
     Dot,
     Arrow,
     DotDot,
+    DotDotEq,
 }
 
 /// Every distinct token the lexer can produce.
@@ -593,7 +594,11 @@ impl<'src> Lexer<'src> {
             }
             b'.' => {
                 if self.matches(b'.') {
-                    TokenKind::Punctuator(Punctuator::DotDot)
+                    if self.matches(b'=') {
+                        TokenKind::Punctuator(Punctuator::DotDotEq)
+                    } else {
+                        TokenKind::Punctuator(Punctuator::DotDot)
+                    }
                 } else {
                     TokenKind::Punctuator(Punctuator::Dot)
                 }

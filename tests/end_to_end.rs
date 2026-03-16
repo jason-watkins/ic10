@@ -248,7 +248,16 @@ fn while_loop() {
         "#,
     )
     .unwrap();
-    assert!(!output.is_empty(), "expected non-empty output");
+    assert_eq!(
+        output.trim(),
+        "move r1 0\n\
+         add r0 r1 1\n\
+         blt r0 5 5\n\
+         s d0 Setting r0\n\
+         hcf\n\
+         move r1 r0\n\
+         j 1",
+    );
 }
 
 #[test]
@@ -266,7 +275,199 @@ fn for_loop() {
         "#,
     )
     .unwrap();
-    assert!(!output.is_empty(), "expected non-empty output");
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("add ") && l.ends_with(" 1")),
+        "ascending step-1 loop must increment by 1: {output}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("blt ") && l.contains(" 10 ")),
+        "exclusive ascending loop must use blt with bound 10: {output}"
+    );
+    assert!(
+        lines.last().unwrap().starts_with("j "),
+        "bottom-tested loop must end with back-edge jump: {output}"
+    );
+    assert!(
+        output.contains("s d0 Setting") && output.contains("hcf"),
+        "must write result and halt: {output}"
+    );
+}
+
+#[test]
+fn for_loop_inclusive_range() {
+    let output = compile(
+        r#"
+        device out: d0;
+        fn main() {
+            let mut sum: i53 = 0;
+            for i in 0..=9 {
+                sum = sum + i;
+            }
+            out.Setting = sum;
+        }
+        "#,
+    )
+    .unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert!(
+        lines.iter().any(|l| l.starts_with("ble ")),
+        "inclusive range must use ble (not blt): {output}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.starts_with("blt ")),
+        "inclusive range must not use blt: {output}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("ble ") && l.contains(" 9 ")),
+        "inclusive back-edge must compare against upper bound 9: {output}"
+    );
+    assert!(
+        lines.last().unwrap().starts_with("j "),
+        "bottom-tested loop must end with back-edge jump: {output}"
+    );
+}
+
+#[test]
+fn for_loop_reverse() {
+    let output = compile(
+        r#"
+        device out: d0;
+        fn main() {
+            let mut sum: i53 = 0;
+            for i in (0..10).rev() {
+                sum = sum + i;
+            }
+            out.Setting = sum;
+        }
+        "#,
+    )
+    .unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert!(
+        lines.iter().any(|l| l.starts_with("sub ")),
+        "reverse loop must decrement with sub: {output}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("bge ")),
+        "reverse loop must use bge for back-edge: {output}"
+    );
+    assert!(
+        lines[0].contains(" 9") || lines[1].contains(" 9"),
+        "exclusive reverse 0..10 must start iterator at 9 (upper - 1): {output}"
+    );
+    assert!(
+        lines.last().unwrap().starts_with("j "),
+        "bottom-tested loop must end with back-edge jump: {output}"
+    );
+}
+
+#[test]
+fn for_loop_inclusive_reverse() {
+    let output = compile(
+        r#"
+        device out: d0;
+        fn main() {
+            let mut sum: i53 = 0;
+            for i in (0..=9).rev() {
+                sum = sum + i;
+            }
+            out.Setting = sum;
+        }
+        "#,
+    )
+    .unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert!(
+        lines.iter().any(|l| l.starts_with("sub ")),
+        "reverse loop must decrement with sub: {output}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("bge ")),
+        "reverse loop must use bge for back-edge: {output}"
+    );
+    assert!(
+        lines[0].contains(" 9") || lines[1].contains(" 9"),
+        "inclusive reverse 0..=9 must start iterator at 9: {output}"
+    );
+    assert!(
+        lines.last().unwrap().starts_with("j "),
+        "bottom-tested loop must end with back-edge jump: {output}"
+    );
+}
+
+#[test]
+fn for_loop_step_by() {
+    let output = compile(
+        r#"
+        device out: d0;
+        fn main() {
+            let mut sum: i53 = 0;
+            for i in (0..10).step_by(2) {
+                sum = sum + i;
+            }
+            out.Setting = sum;
+        }
+        "#,
+    )
+    .unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("add ") && l.ends_with(" 2")),
+        "step_by(2) must increment by 2: {output}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("blt ")),
+        "ascending exclusive loop must use blt for back-edge: {output}"
+    );
+    assert!(
+        lines.last().unwrap().starts_with("j "),
+        "bottom-tested loop must end with back-edge jump: {output}"
+    );
+}
+
+#[test]
+fn for_loop_reverse_step_by() {
+    let output = compile(
+        r#"
+        device out: d0;
+        fn main() {
+            let mut sum: i53 = 0;
+            for i in (0..=10).rev().step_by(3) {
+                sum = sum + i;
+            }
+            out.Setting = sum;
+        }
+        "#,
+    )
+    .unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("sub ") && l.ends_with(" 3")),
+        "rev().step_by(3) must decrement by 3: {output}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("bge ")),
+        "reverse loop must use bge for back-edge: {output}"
+    );
+    assert!(
+        lines[0].contains(" 10") || lines[1].contains(" 10"),
+        "inclusive reverse 0..=10 must start iterator at 10: {output}"
+    );
+    assert!(
+        lines.last().unwrap().starts_with("j "),
+        "bottom-tested loop must end with back-edge jump: {output}"
+    );
 }
 
 #[test]

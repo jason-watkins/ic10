@@ -160,12 +160,18 @@ pub struct WhileStatement {
     pub span: Span,
 }
 
-/// `for var in lower..upper { body }`
+/// `for var in lower..upper { body }` with optional modifiers:
+/// - `lower..=upper` for inclusive upper bound
+/// - `(lower..upper).rev()` for reverse iteration
+/// - `(lower..upper).step_by(n)` for custom step
 #[derive(Debug, Clone)]
 pub struct ForStatement {
     pub var: String,
     pub lower: Expression,
     pub upper: Expression,
+    pub inclusive: bool,
+    pub reverse: bool,
+    pub step: Option<Expression>,
     pub body: Block,
     pub span: Span,
 }

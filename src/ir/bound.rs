@@ -189,6 +189,9 @@ pub struct ForStatement {
     pub variable: SymbolId,
     pub lower: Expression,
     pub upper: Expression,
+    pub inclusive: bool,
+    pub reverse: bool,
+    pub step: Option<Expression>,
     pub body: Block,
     pub span: Span,
 }

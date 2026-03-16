@@ -398,6 +398,19 @@ impl Binder {
                         ),
                     );
                 }
+                let step = s.step.as_ref().map(|step_expr| {
+                    let bound_step = self.bind_expression(step_expr);
+                    if bound_step.ty != Type::I53 {
+                        self.error(
+                            step_expr.span,
+                            format!(
+                                "`for` range step must be `i53`, found `{:?}`",
+                                bound_step.ty
+                            ),
+                        );
+                    }
+                    bound_step
+                });
                 self.push_scope();
                 let variable = self.allocate_symbol(SymbolInfo {
                     name: s.var.clone(),
@@ -412,6 +425,9 @@ impl Binder {
                     variable,
                     lower,
                     upper,
+                    inclusive: s.inclusive,
+                    reverse: s.reverse,
+                    step,
                     body,
                     span: s.span,
                 })

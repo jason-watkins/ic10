@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::ir::bound::SymbolTable;
 use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator,
 };
-use crate::ir::bound::SymbolTable;
 use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
 use super::allocator::{AllocationResult, SpillRecord};
@@ -670,7 +670,6 @@ impl<'a> Emitter<'a> {
             )));
         }
     }
-
 }
 
 fn register_for_index(index: usize) -> Register {
@@ -789,36 +788,46 @@ fn rewrite_jump_targets(
         IC10Instruction::BranchDeviceNotValidStore(pin, field, target) => {
             IC10Instruction::BranchDeviceNotValidStore(pin, field, resolve_target(target, labels))
         }
-        IC10Instruction::BranchApproximateEqual { left, right, epsilon, target } => {
-            IC10Instruction::BranchApproximateEqual {
-                left,
-                right,
-                epsilon,
-                target: resolve_target(target, labels),
-            }
-        }
-        IC10Instruction::BranchApproximateZero { value, epsilon, target } => {
-            IC10Instruction::BranchApproximateZero {
-                value,
-                epsilon,
-                target: resolve_target(target, labels),
-            }
-        }
-        IC10Instruction::BranchNotApproximateEqual { left, right, epsilon, target } => {
-            IC10Instruction::BranchNotApproximateEqual {
-                left,
-                right,
-                epsilon,
-                target: resolve_target(target, labels),
-            }
-        }
-        IC10Instruction::BranchNotApproximateZero { value, epsilon, target } => {
-            IC10Instruction::BranchNotApproximateZero {
-                value,
-                epsilon,
-                target: resolve_target(target, labels),
-            }
-        }
+        IC10Instruction::BranchApproximateEqual {
+            left,
+            right,
+            epsilon,
+            target,
+        } => IC10Instruction::BranchApproximateEqual {
+            left,
+            right,
+            epsilon,
+            target: resolve_target(target, labels),
+        },
+        IC10Instruction::BranchApproximateZero {
+            value,
+            epsilon,
+            target,
+        } => IC10Instruction::BranchApproximateZero {
+            value,
+            epsilon,
+            target: resolve_target(target, labels),
+        },
+        IC10Instruction::BranchNotApproximateEqual {
+            left,
+            right,
+            epsilon,
+            target,
+        } => IC10Instruction::BranchNotApproximateEqual {
+            left,
+            right,
+            epsilon,
+            target: resolve_target(target, labels),
+        },
+        IC10Instruction::BranchNotApproximateZero {
+            value,
+            epsilon,
+            target,
+        } => IC10Instruction::BranchNotApproximateZero {
+            value,
+            epsilon,
+            target: resolve_target(target, labels),
+        },
         IC10Instruction::BranchNaN(a, target) => {
             IC10Instruction::BranchNaN(a, resolve_target(target, labels))
         }
@@ -873,11 +882,7 @@ fn rewrite_jump_targets(
             )
         }
         IC10Instruction::BranchNotApproximateZeroAndLink(a, b, target) => {
-            IC10Instruction::BranchNotApproximateZeroAndLink(
-                a,
-                b,
-                resolve_target(target, labels),
-            )
+            IC10Instruction::BranchNotApproximateZeroAndLink(a, b, resolve_target(target, labels))
         }
         other => other,
     }

@@ -485,6 +485,15 @@ impl Builder {
     ///
     /// If the condition is a literal `true`, emit an unconditional
     /// back-edge instead of a conditional branch
+    /// Lower `while cond { body }`.
+    ///
+    /// Uses a bottom-tested pattern: the condition is evaluated at the end of
+    /// the loop as the back-edge test, saving one unconditional jump per
+    /// iteration compared to a top-tested loop. An initial guard skips the
+    /// loop entirely when the condition is false on entry.
+    ///
+    /// Infinite loops (`loop { … }`, desugared to `while true { … }`) skip
+    /// the guard and use an unconditional back-edge.
     fn lower_while(&mut self, while_statement: &bound::WhileStatement) {
         let is_infinite = matches!(
             while_statement.condition.kind,
@@ -494,90 +503,168 @@ impl Builder {
         self.next_loop_index += 1;
         let loop_index = self.next_loop_index;
 
-        let header_block = self.new_block();
-        self.blocks[header_block.0].role = BlockRole::LoopStart(loop_index);
         let body_block = self.new_block();
-        self.blocks[body_block.0].role = BlockRole::LoopBody(loop_index);
+        self.blocks[body_block.0].role = BlockRole::LoopStart(loop_index);
+        let check_block = self.new_block();
+        self.blocks[check_block.0].role = BlockRole::LoopContinue(loop_index);
         let exit_block = self.new_block();
         self.blocks[exit_block.0].role = BlockRole::LoopEnd(loop_index);
-
-        self.terminate_and_jump(header_block);
-        self.switch_to(header_block);
 
         if is_infinite {
             self.terminate_and_jump(body_block);
         } else {
-            let cond_temp = self.lower_expression(&while_statement.condition);
-            self.terminate_and_branch(cond_temp, body_block, exit_block);
+            let guard_cond = self.lower_expression(&while_statement.condition);
+            self.terminate_and_branch(guard_cond, body_block, exit_block);
         }
 
         self.loop_stack.push(LoopContext {
-            continue_target: header_block,
+            continue_target: check_block,
             break_target: exit_block,
         });
 
         self.switch_to(body_block);
         self.lower_block(&while_statement.body);
         if self.current_block_needs_terminator() {
-            self.terminate_and_jump(header_block);
+            self.terminate_and_jump(check_block);
         }
 
         self.loop_stack.pop();
 
+        self.switch_to(check_block);
+        if is_infinite {
+            self.terminate_and_jump(body_block);
+        } else {
+            let back_cond = self.lower_expression(&while_statement.condition);
+            self.terminate_and_branch(back_cond, body_block, exit_block);
+        }
+
         self.switch_to(exit_block);
     }
 
-    /// Lower `for var in lower..upper { body }`.
+    /// Lower `for var in lower..upper { body }` and its variants.
     ///
-    /// Desugaring (from ic20.md §6.8):
-    ///   evaluate lower_expr into r_i
-    ///   evaluate upper_expr into r_upper
-    ///   for_check:
-    ///     slt r_cond r_i r_upper
-    ///     beqz r_cond for_end
-    ///   for_body:
-    ///     <body>
-    ///   for_continue:
-    ///     add r_i r_i 1
-    ///     j for_check
+    /// Supports exclusive (`..`) and inclusive (`..=`) ranges, reverse
+    /// iteration (`.rev()`), and custom step (`.step_by(n)`).
+    ///
+    /// Uses a bottom-tested pattern: the back-edge test is at the end of
+    /// the loop, saving one unconditional jump per iteration. An initial
+    /// guard branch skips the loop if the range is empty.
+    ///
+    /// Ascending exclusive `for i in a..b`:
+    ///   r_i = a; r_upper = b
+    ///   bge r_i r_upper for_end
+    ///   for_body: <body>
+    ///   for_continue: add r_i r_i step; blt r_i r_upper for_body
+    ///   for_end:
+    ///
+    /// Ascending inclusive `for i in a..=b`:
+    ///   r_i = a; r_upper = b
+    ///   bgt r_i r_upper for_end
+    ///   for_body: <body>
+    ///   for_continue: add r_i r_i step; ble r_i r_upper for_body
+    ///   for_end:
+    ///
+    /// Descending exclusive `(a..b).rev()`:
+    ///   r_i = b - step; r_lower = a
+    ///   blt r_i r_lower for_end
+    ///   for_body: <body>
+    ///   for_continue: sub r_i r_i step; bge r_i r_lower for_body
+    ///   for_end:
+    ///
+    /// Descending inclusive `(a..=b).rev()`:
+    ///   r_i = b; r_lower = a
+    ///   blt r_i r_lower for_end
+    ///   for_body: <body>
+    ///   for_continue: sub r_i r_i step; bge r_i r_lower for_body
     ///   for_end:
     fn lower_for(&mut self, for_statement: &bound::ForStatement) {
         let lower_temp = self.lower_expression(&for_statement.lower);
         let upper_temp = self.lower_expression(&for_statement.upper);
 
+        let step_temp = if let Some(step_expr) = &for_statement.step {
+            self.lower_expression(step_expr)
+        } else {
+            let t = self.fresh_temp();
+            self.emit(Instruction::Assign {
+                dest: t,
+                operation: Operation::Constant(1.0),
+            });
+            t
+        };
+
+        let reverse = for_statement.reverse;
+        let inclusive = for_statement.inclusive;
+
         let loop_var = self.fresh_temp();
-        self.emit(Instruction::Assign {
-            dest: loop_var,
-            operation: Operation::Copy(lower_temp),
-        });
+        let bound_temp;
+
+        if reverse {
+            if inclusive {
+                // (a..=b).rev(): start at b, count down to a
+                self.emit(Instruction::Assign {
+                    dest: loop_var,
+                    operation: Operation::Copy(upper_temp),
+                });
+                bound_temp = lower_temp;
+            } else {
+                // (a..b).rev(): start at b - step, count down to a
+                let start = self.fresh_temp();
+                self.emit(Instruction::Assign {
+                    dest: start,
+                    operation: Operation::Binary {
+                        operator: BinaryOperator::Sub,
+                        left: upper_temp,
+                        right: step_temp,
+                    },
+                });
+                self.emit(Instruction::Assign {
+                    dest: loop_var,
+                    operation: Operation::Copy(start),
+                });
+                bound_temp = lower_temp;
+            }
+        } else {
+            // Ascending: start at lower, bound is upper
+            self.emit(Instruction::Assign {
+                dest: loop_var,
+                operation: Operation::Copy(lower_temp),
+            });
+            bound_temp = upper_temp;
+        }
+
         self.record_variable_definition(for_statement.variable, loop_var);
 
         self.next_loop_index += 1;
         let loop_index = self.next_loop_index;
 
-        let check_block = self.new_block();
-        self.blocks[check_block.0].role = BlockRole::LoopStart(loop_index);
         let body_block = self.new_block();
-        self.blocks[body_block.0].role = BlockRole::LoopBody(loop_index);
+        self.blocks[body_block.0].role = BlockRole::LoopStart(loop_index);
         let continue_block = self.new_block();
         self.blocks[continue_block.0].role = BlockRole::LoopContinue(loop_index);
         let exit_block = self.new_block();
         self.blocks[exit_block.0].role = BlockRole::LoopEnd(loop_index);
 
-        self.terminate_and_jump(check_block);
-
-        self.switch_to(check_block);
+        let guard_cond = self.fresh_temp();
+        let guard_operator = if reverse {
+            // Descending: skip if start < bound (empty range)
+            BinaryOperator::Lt
+        } else if inclusive {
+            // Ascending inclusive: skip if start > bound (empty range)
+            BinaryOperator::Gt
+        } else {
+            // Ascending exclusive: skip if start >= bound (empty range)
+            BinaryOperator::Ge
+        };
         let current_loop_var = self.variable_temps[&for_statement.variable];
-        let cond = self.fresh_temp();
         self.emit(Instruction::Assign {
-            dest: cond,
+            dest: guard_cond,
             operation: Operation::Binary {
-                operator: BinaryOperator::Lt,
+                operator: guard_operator,
                 left: current_loop_var,
-                right: upper_temp,
+                right: bound_temp,
             },
         });
-        self.terminate_and_branch(cond, body_block, exit_block);
+        self.terminate_and_branch(guard_cond, exit_block, body_block);
 
         self.loop_stack.push(LoopContext {
             continue_target: continue_block,
@@ -593,23 +680,40 @@ impl Builder {
         self.loop_stack.pop();
 
         self.switch_to(continue_block);
-        let incremented = self.fresh_temp();
-        let one = self.fresh_temp();
-        self.emit(Instruction::Assign {
-            dest: one,
-            operation: Operation::Constant(1.0),
-        });
+
+        let (increment_operator, back_edge_operator) = if reverse {
+            // Descending: subtract step, continue while i >= bound
+            (BinaryOperator::Sub, BinaryOperator::Ge)
+        } else if inclusive {
+            // Ascending inclusive: add step, continue while i <= bound
+            (BinaryOperator::Add, BinaryOperator::Le)
+        } else {
+            // Ascending exclusive: add step, continue while i < bound
+            (BinaryOperator::Add, BinaryOperator::Lt)
+        };
+
         let current_var = self.variable_temps[&for_statement.variable];
+        let incremented = self.fresh_temp();
         self.emit(Instruction::Assign {
             dest: incremented,
             operation: Operation::Binary {
-                operator: BinaryOperator::Add,
+                operator: increment_operator,
                 left: current_var,
-                right: one,
+                right: step_temp,
             },
         });
         self.record_variable_definition(for_statement.variable, incremented);
-        self.terminate_and_jump(check_block);
+
+        let back_cond = self.fresh_temp();
+        self.emit(Instruction::Assign {
+            dest: back_cond,
+            operation: Operation::Binary {
+                operator: back_edge_operator,
+                left: incremented,
+                right: bound_temp,
+            },
+        });
+        self.terminate_and_branch(back_cond, body_block, exit_block);
 
         self.switch_to(exit_block);
     }
@@ -925,8 +1029,12 @@ mod tests {
         let program = build_cfg("fn main() { let mut x = true; while x { x = false; } }");
         let main = get_function(&program, "main");
         assert!(main.blocks.len() >= 4);
-        let header = &main.blocks[1];
-        assert!(matches!(header.terminator, Terminator::Branch { .. }));
+        let entry = &main.blocks[0];
+        assert!(
+            matches!(entry.terminator, Terminator::Branch { .. }),
+            "expected guard Branch in entry block, got {:?}",
+            entry.terminator
+        );
     }
 
     #[test]
@@ -946,7 +1054,7 @@ mod tests {
     fn for_loop_desugaring() {
         let program = build_cfg("fn main() { for i in 0..10 { yield; } }");
         let main = get_function(&program, "main");
-        assert!(main.blocks.len() >= 5);
+        assert!(main.blocks.len() >= 4);
     }
 
     #[test]
