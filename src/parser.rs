@@ -361,9 +361,7 @@ impl Parser {
             TokenKind::Keyword(Keyword::While) => {
                 self.parse_while_statement(None).map(Statement::While)
             }
-            TokenKind::Keyword(Keyword::For) => {
-                self.parse_for_statement(None).map(Statement::For)
-            }
+            TokenKind::Keyword(Keyword::For) => self.parse_for_statement(None).map(Statement::For),
             TokenKind::Keyword(Keyword::Return) => {
                 self.parse_return_statement().map(Statement::Return)
             }
@@ -597,9 +595,9 @@ impl Parser {
             TokenKind::Keyword(Keyword::Loop) => {
                 self.parse_loop_statement(Some(label)).map(Statement::While)
             }
-            TokenKind::Keyword(Keyword::While) => {
-                self.parse_while_statement(Some(label)).map(Statement::While)
-            }
+            TokenKind::Keyword(Keyword::While) => self
+                .parse_while_statement(Some(label))
+                .map(Statement::While),
             TokenKind::Keyword(Keyword::For) => {
                 self.parse_for_statement(Some(label)).map(Statement::For)
             }
@@ -625,12 +623,16 @@ impl Parser {
         let (var, _) = self.expect_identifier()?;
         self.expect(&TokenKind::Keyword(Keyword::In))?;
 
-        let parenthesized =
-            self.accept(&TokenKind::Punctuator(Punctuator::LParen)).is_some();
+        let parenthesized = self
+            .accept(&TokenKind::Punctuator(Punctuator::LParen))
+            .is_some();
 
         let lower = self.parse_expression()?;
 
-        let inclusive = if self.accept(&TokenKind::Punctuator(Punctuator::DotDotEq)).is_some() {
+        let inclusive = if self
+            .accept(&TokenKind::Punctuator(Punctuator::DotDotEq))
+            .is_some()
+        {
             true
         } else {
             self.expect(&TokenKind::Punctuator(Punctuator::DotDot))?;
@@ -646,7 +648,10 @@ impl Parser {
         let mut reverse = false;
         let mut step = None;
 
-        while self.accept(&TokenKind::Punctuator(Punctuator::Dot)).is_some() {
+        while self
+            .accept(&TokenKind::Punctuator(Punctuator::Dot))
+            .is_some()
+        {
             let (method, method_span) = self.expect_identifier()?;
             match method.as_str() {
                 "rev" => {
@@ -675,9 +680,14 @@ impl Parser {
                 _ => {
                     self.diagnostics.push(Diagnostic::error(
                         method_span,
-                        format!("unknown range method `.{method}()`; expected `.rev()` or `.step_by()`"),
+                        format!(
+                            "unknown range method `.{method}()`; expected `.rev()` or `.step_by()`"
+                        ),
                     ));
-                    if self.accept(&TokenKind::Punctuator(Punctuator::LParen)).is_some() {
+                    if self
+                        .accept(&TokenKind::Punctuator(Punctuator::LParen))
+                        .is_some()
+                    {
                         while self.peek_kind() != &TokenKind::Punctuator(Punctuator::RParen)
                             && self.peek_kind() != &TokenKind::Eof
                         {
@@ -1231,7 +1241,7 @@ mod tests {
     use core::f64;
 
     use super::parse;
-    use crate::diagnostic::{Diagnostic, Severity};
+    use crate::diagnostic::{Diagnostic, Severity, Span};
     use crate::ir::ast::{
         AssignmentTarget, ConstDeclaration, DeviceDeclaration, ElseClause, ExpressionKind,
         FunctionDeclaration, Item, LetStatement, LiteralKind, Program, Statement,
@@ -1750,26 +1760,6 @@ mod tests {
             ));
         } else {
             panic!("expected for statement");
-        }
-    }
-
-    #[test]
-    fn break_statement() {
-        let statements = fn_statements("fn f() { loop { break; } }");
-        if let Statement::While(statement) = &statements[0] {
-            assert!(matches!(statement.body.stmts[0], Statement::Break(_)));
-        } else {
-            panic!("expected while statement (desugared loop)");
-        }
-    }
-
-    #[test]
-    fn continue_statement() {
-        let statements = fn_statements("fn f() { loop { continue; } }");
-        if let Statement::While(statement) = &statements[0] {
-            assert!(matches!(statement.body.stmts[0], Statement::Continue(_)));
-        } else {
-            panic!("expected while statement (desugared loop)");
         }
     }
 
@@ -2482,55 +2472,88 @@ mod tests {
     #[test]
     fn error_on_unexpected_top_level_token() {
         let errors = parse_errors("42;");
-        assert!(!errors.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0]
+                .message
+                .contains("expected `const`, `device`, or `fn`")
+        );
+        assert_eq!(errors[0].span, Span::new(0, 2));
     }
 
     #[test]
     fn error_on_bad_device_pin() {
         let errors = parse_errors("device x: d9;");
-        assert!(!errors.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0]
+                .message
+                .contains("expected device pin (d0-d5 or db)")
+        );
+        assert_eq!(errors[0].span, Span::new(10, 12));
     }
 
     #[test]
     fn error_on_missing_colon_in_const() {
         let errors = parse_errors("const X i53 = 42;");
-        assert!(!errors.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].message, "expected ``:``, found ``i53``");
+        assert_eq!(errors[0].span, Span::new(8, 11));
     }
 
     #[test]
     fn error_on_missing_type_in_const() {
         let errors = parse_errors("const X: = 42;");
-        assert!(!errors.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].message, "expected type, found ``=``");
+        assert_eq!(errors[0].span, Span::new(9, 10));
     }
 
     #[test]
     fn error_on_missing_fn_body() {
         let errors = parse_errors("fn f()");
-        assert!(!errors.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].message, "expected ``{``, found `end of file`");
+        assert_eq!(errors[0].span, Span::new(6, 6));
     }
 
     #[test]
     fn error_on_missing_type_after_return_arrow() {
         let errors = parse_errors("fn f() -> { }");
         assert!(!errors.is_empty());
+        assert_eq!(errors[0].message, "expected type, found ``{``");
+        assert_eq!(errors[0].span, Span::new(10, 11));
     }
 
     #[test]
     fn error_on_unclosed_block() {
         let errors = parse_errors("fn f() { let x = 1;");
-        assert!(!errors.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].message, "expected ``}``, found `end of file`");
+        assert_eq!(errors[0].span, Span::new(19, 19));
     }
 
     #[test]
     fn error_on_non_string_hash_argument() {
         let errors = parse_errors("fn f() { let x = hash(42); }");
-        assert!(!errors.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message,
+            "expected string literal, found `integer literal`"
+        );
+        assert_eq!(errors[0].span, Span::new(22, 24));
     }
 
     #[test]
     fn error_on_invalid_batch_mode() {
         let errors = parse_errors("fn f() { let x = batch_read(h, Field, Unknown); }");
-        assert!(!errors.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0]
+                .message
+                .contains("expected batch mode (Average, Sum, Minimum, Maximum, or Contents)")
+        );
+        assert_eq!(errors[0].span, Span::new(38, 45));
     }
 
     #[test]
@@ -2567,5 +2590,154 @@ mod tests {
             .iter()
             .any(|item| matches!(item, Item::Fn(declaration) if declaration.name == "ok"));
         assert!(has_ok, "valid fn after errors should be parsed");
+    }
+
+    #[test]
+    fn labeled_loop_statement() {
+        let statements = fn_statements("fn f() { 'outer: loop { break; } }");
+        if let Statement::While(statement) = &statements[0] {
+            assert_eq!(statement.label.as_deref(), Some("outer"));
+            assert!(matches!(
+                statement.cond.kind,
+                ExpressionKind::Literal(LiteralKind::Bool(true))
+            ));
+        } else {
+            panic!("expected while statement (desugared labeled loop)");
+        }
+    }
+
+    #[test]
+    fn labeled_while_statement() {
+        let statements = fn_statements("fn f() { 'outer: while true { break; } }");
+        if let Statement::While(statement) = &statements[0] {
+            assert_eq!(statement.label.as_deref(), Some("outer"));
+        } else {
+            panic!("expected while statement");
+        }
+    }
+
+    #[test]
+    fn labeled_for_statement() {
+        let statements = fn_statements("fn f() { 'outer: for i in 0..10 { break; } }");
+        if let Statement::For(statement) = &statements[0] {
+            assert_eq!(statement.label.as_deref(), Some("outer"));
+            assert_eq!(statement.var, "i");
+        } else {
+            panic!("expected for statement");
+        }
+    }
+
+    #[test]
+    fn break_with_label() {
+        let statements = fn_statements("fn f() { 'outer: loop { break 'outer; } }");
+        if let Statement::While(statement) = &statements[0] {
+            if let Statement::Break(break_statement) = &statement.body.stmts[0] {
+                assert_eq!(break_statement.label.as_deref(), Some("outer"));
+            } else {
+                panic!("expected break statement");
+            }
+        } else {
+            panic!("expected while statement");
+        }
+    }
+
+    #[test]
+    fn continue_with_label() {
+        let statements = fn_statements("fn f() { 'outer: loop { continue 'outer; } }");
+        if let Statement::While(statement) = &statements[0] {
+            if let Statement::Continue(continue_statement) = &statement.body.stmts[0] {
+                assert_eq!(continue_statement.label.as_deref(), Some("outer"));
+            } else {
+                panic!("expected continue statement");
+            }
+        } else {
+            panic!("expected while statement");
+        }
+    }
+
+    #[test]
+    fn batch_write_parsing() {
+        let statements =
+            fn_statements(r#"fn f() { batch_write(hash("StructureWallType"), On, 1); }"#);
+        assert!(matches!(statements[0], Statement::BatchWrite(_)));
+    }
+
+    #[test]
+    fn is_nan_expression_parsing() {
+        let declaration = single_fn("fn f(x: f64) -> bool { return is_nan(x); }");
+        if let Statement::Return(ret) = &declaration.body.stmts[0] {
+            let value = ret.value.as_ref().unwrap();
+            assert!(
+                matches!(&value.kind, ExpressionKind::IntrinsicCall(Intrinsic::IsNan, args) if args.len() == 1),
+            );
+        } else {
+            panic!("expected return statement");
+        }
+    }
+
+    #[test]
+    fn trailing_comma_in_parameter_list() {
+        let declaration = single_fn("fn f(a: i53, b: i53,) {}");
+        assert_eq!(declaration.params.len(), 2);
+        assert_eq!(declaration.params[0].name, "a");
+        assert_eq!(declaration.params[1].name, "b");
+    }
+
+    #[test]
+    fn trailing_comma_in_call_argument_list() {
+        let declaration = single_fn("fn f() { g(1, 2,); }");
+        if let Statement::Expression(expression) = &declaration.body.stmts[0] {
+            if let ExpressionKind::Call(call) = &expression.expr.kind {
+                assert_eq!(call.args.len(), 2);
+            } else {
+                panic!("expected call expression");
+            }
+        } else {
+            panic!("expected expression statement");
+        }
+    }
+
+    #[test]
+    fn for_range_error_double_rev() {
+        let errors = parse_errors("fn f() { for i in (0..10).rev().rev() {} }");
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("duplicate `.rev()`")),
+            "expected duplicate .rev() error: {errors:?}",
+        );
+    }
+
+    #[test]
+    fn for_range_error_double_step_by() {
+        let errors = parse_errors("fn f() { for i in (0..10).step_by(2).step_by(3) {} }");
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("duplicate `.step_by()`")),
+            "expected duplicate .step_by() error: {errors:?}",
+        );
+    }
+
+    #[test]
+    fn for_range_error_unknown_modifier() {
+        let errors = parse_errors("fn f() { for i in (0..10).fwd() {} }");
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("unknown range method")),
+            "expected unknown range method error: {errors:?}",
+        );
+    }
+
+    #[test]
+    fn for_range_step_by_then_rev_ordering() {
+        let statements = fn_statements("fn f() { for i in (0..10).step_by(2).rev() {} }");
+        if let Statement::For(statement) = &statements[0] {
+            assert!(statement.reverse);
+            assert!(statement.step.is_some());
+        } else {
+            panic!("expected for statement");
+        }
     }
 }

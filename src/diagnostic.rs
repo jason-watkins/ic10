@@ -285,6 +285,33 @@ mod tests {
         let source = "bad!";
         let d = Diagnostic::error(Span::new(3, 4), "unexpected '!'");
         let s = format!("{}", d.display(source, "f.ic20"));
-        assert!(!s.is_empty());
+        let plain = strip_ansi(&s);
+        assert!(plain.contains("error"), "output should contain severity");
+        assert!(plain.contains("unexpected '!'"), "output should contain message");
+        assert!(plain.contains("f.ic20"), "output should contain filename");
+    }
+
+    #[test]
+    fn tab_character_column_alignment() {
+        let source = "\tlet x = @;";
+        let out = render(source, Span::new(9, 10), Severity::Error, "bad char");
+        assert!(out.contains("bad char"), "{out}");
+        assert!(out.contains("let x = @;"), "source line should appear: {out}");
+    }
+
+    #[test]
+    fn very_long_source_line_no_panic() {
+        let long_ident: String = "x".repeat(1500);
+        let source = format!("let {} = 1;", long_ident);
+        let out = render(&source, Span::new(0, 3), Severity::Warning, "unused");
+        assert!(out.contains("unused"), "{out}");
+    }
+
+    #[test]
+    fn span_at_start_of_file() {
+        let source = "let x = 1;";
+        let out = render(source, Span::new(0, 3), Severity::Error, "unexpected let");
+        assert!(out.contains("--> test.ic20:1:1"), "location: {out}");
+        assert!(out.contains("^^^"), "caret: {out}");
     }
 }

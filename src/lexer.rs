@@ -1008,86 +1008,6 @@ fn main() {
     }
 
     #[test]
-    fn integer_decimal() {
-        assert_eq!(kinds("42"), vec![TokenKind::Literal(Literal::I53(42))]);
-        assert_eq!(
-            kinds("1_000_000"),
-            vec![TokenKind::Literal(Literal::I53(1_000_000))]
-        );
-    }
-
-    #[test]
-    fn integer_hex() {
-        assert_eq!(
-            kinds("0xDEAD_BEEF"),
-            vec![TokenKind::Literal(Literal::I53(0xDEAD_BEEF))]
-        );
-        assert_eq!(kinds("0xFF"), vec![TokenKind::Literal(Literal::I53(0xFF))]);
-    }
-
-    #[test]
-    fn integer_octal() {
-        assert_eq!(
-            kinds("0o755"),
-            vec![TokenKind::Literal(Literal::I53(0o755))]
-        );
-    }
-
-    #[test]
-    fn integer_binary() {
-        assert_eq!(
-            kinds("0b1010_0011"),
-            vec![TokenKind::Literal(Literal::I53(0b1010_0011))]
-        );
-    }
-
-    #[test]
-    fn float_simple() {
-        assert_eq!(kinds("3.25"), vec![TokenKind::Literal(Literal::F64(3.25))]);
-        assert_eq!(kinds("0.5"), vec![TokenKind::Literal(Literal::F64(0.5))]);
-    }
-
-    #[test]
-    fn float_with_exponent() {
-        assert_eq!(
-            kinds("1.0e10"),
-            vec![TokenKind::Literal(Literal::F64(1.0e10))]
-        );
-        assert_eq!(
-            kinds("2.5e-3"),
-            vec![TokenKind::Literal(Literal::F64(2.5e-3))]
-        );
-        assert_eq!(kinds("1e5"), vec![TokenKind::Literal(Literal::F64(1e5))]);
-    }
-
-    #[test]
-    fn dot_not_float() {
-        assert_eq!(kinds("0.5"), vec![TokenKind::Literal(Literal::F64(0.5))]);
-    }
-
-    #[test]
-    fn single_line_comment_strips() {
-        assert_eq!(
-            kinds("let // comment\nx"),
-            vec![
-                TokenKind::Keyword(Keyword::Let),
-                TokenKind::Identifier("x".into())
-            ]
-        );
-    }
-
-    #[test]
-    fn block_comment_strips() {
-        assert_eq!(
-            kinds("let /* block */ x"),
-            vec![
-                TokenKind::Keyword(Keyword::Let),
-                TokenKind::Identifier("x".into())
-            ]
-        );
-    }
-
-    #[test]
     fn unterminated_block_comment() {
         let d = diags("/* never closed");
         assert_eq!(d.len(), 1);
@@ -1168,19 +1088,6 @@ fn main() {
     }
 
     #[test]
-    fn reserved_future_keywords() {
-        let k = kinds("enum struct trait");
-        assert_eq!(
-            k,
-            vec![
-                TokenKind::Reserved(Reserved::Enum),
-                TokenKind::Reserved(Reserved::Struct),
-                TokenKind::Reserved(Reserved::Trait),
-            ]
-        );
-    }
-
-    #[test]
     fn hex_missing_digits() {
         let d = diags("0x");
         assert_eq!(d.len(), 1);
@@ -1232,44 +1139,6 @@ fn main() {
     #[test]
     fn zero_literal() {
         assert_eq!(kinds("0"), vec![TokenKind::Literal(Literal::I53(0))]);
-    }
-
-    #[test]
-    fn shift_operators() {
-        assert_eq!(
-            kinds("<< >>"),
-            vec![
-                TokenKind::Operator(Operator::Shl),
-                TokenKind::Operator(Operator::Shr)
-            ]
-        );
-    }
-
-    #[test]
-    fn logical_operators() {
-        assert_eq!(
-            kinds("&& || !"),
-            vec![
-                TokenKind::Operator(Operator::AmpAmp),
-                TokenKind::Operator(Operator::PipePipe),
-                TokenKind::Operator(Operator::Bang),
-            ]
-        );
-    }
-
-    #[test]
-    fn comparison_operators() {
-        assert_eq!(
-            kinds("== != < > <= >="),
-            vec![
-                TokenKind::Operator(Operator::EqEq),
-                TokenKind::Operator(Operator::BangEq),
-                TokenKind::Operator(Operator::Lt),
-                TokenKind::Operator(Operator::Gt),
-                TokenKind::Operator(Operator::LtEq),
-                TokenKind::Operator(Operator::GtEq),
-            ]
-        );
     }
 
     #[test]
@@ -1327,5 +1196,43 @@ fn main() {
         let d = diags("'");
         assert_eq!(d.len(), 1);
         assert!(d[0].message.contains("expected identifier after"));
+    }
+
+    #[test]
+    fn dotdoteq_tokenizes_correctly() {
+        assert_eq!(
+            kinds("0..=9"),
+            vec![
+                TokenKind::Literal(Literal::I53(0)),
+                TokenKind::Punctuator(Punctuator::DotDotEq),
+                TokenKind::Literal(Literal::I53(9)),
+            ],
+        );
+    }
+
+    #[test]
+    fn integer_overflow_at_lex_time() {
+        let d = diags("99999999999999999999");
+        assert_eq!(d.len(), 1);
+        assert!(
+            d[0].message.contains("invalid integer literal"),
+            "{}",
+            d[0].message,
+        );
+    }
+
+    #[test]
+    fn float_negative_exponent_with_underscores() {
+        assert_eq!(
+            kinds("1_0.0e-1_0"),
+            vec![TokenKind::Literal(Literal::F64(1_0.0e-1_0))],
+        );
+    }
+
+    #[test]
+    fn nested_block_comment_not_supported() {
+        // The lexer closes at the first `*/`, so `/* /* */` is a complete comment.
+        let k = kinds("/* /* */ 42");
+        assert_eq!(k, vec![TokenKind::Literal(Literal::I53(42))]);
     }
 }

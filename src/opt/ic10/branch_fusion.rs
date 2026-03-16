@@ -428,6 +428,131 @@ mod tests {
     }
 
     #[test]
+    fn fuse_sne_beqz_inverts() {
+        let mut instructions = vec![
+            IC10Instruction::Sne(register(0), reg(1), reg(2)),
+            IC10Instruction::BranchEqualZero(reg(0), label("target")),
+        ];
+        fuse_branches(&mut instructions);
+        assert_eq!(instructions.len(), 1);
+        assert!(matches!(
+            &instructions[0],
+            IC10Instruction::BranchEqual(
+                Operand::Register(Register::R1),
+                Operand::Register(Register::R2),
+                JumpTarget::Label(name),
+            ) if name == "target"
+        ));
+    }
+
+    #[test]
+    fn fuse_sge_beqz_inverts() {
+        let mut instructions = vec![
+            IC10Instruction::Sge(register(0), reg(1), reg(2)),
+            IC10Instruction::BranchEqualZero(reg(0), label("target")),
+        ];
+        fuse_branches(&mut instructions);
+        assert_eq!(instructions.len(), 1);
+        assert!(matches!(
+            &instructions[0],
+            IC10Instruction::BranchLessThan(
+                Operand::Register(Register::R1),
+                Operand::Register(Register::R2),
+                JumpTarget::Label(name),
+            ) if name == "target"
+        ));
+    }
+
+    #[test]
+    fn fuse_sle_beqz_inverts() {
+        let mut instructions = vec![
+            IC10Instruction::Sle(register(0), reg(1), reg(2)),
+            IC10Instruction::BranchEqualZero(reg(0), label("target")),
+        ];
+        fuse_branches(&mut instructions);
+        assert_eq!(instructions.len(), 1);
+        assert!(matches!(
+            &instructions[0],
+            IC10Instruction::BranchGreaterThan(
+                Operand::Register(Register::R1),
+                Operand::Register(Register::R2),
+                JumpTarget::Label(name),
+            ) if name == "target"
+        ));
+    }
+
+    #[test]
+    fn fuse_sne_bnez() {
+        let mut instructions = vec![
+            IC10Instruction::Sne(register(0), reg(1), reg(2)),
+            IC10Instruction::BranchNotEqualZero(reg(0), label("target")),
+        ];
+        fuse_branches(&mut instructions);
+        assert_eq!(instructions.len(), 1);
+        assert!(matches!(
+            &instructions[0],
+            IC10Instruction::BranchNotEqual(
+                Operand::Register(Register::R1),
+                Operand::Register(Register::R2),
+                JumpTarget::Label(name),
+            ) if name == "target"
+        ));
+    }
+
+    #[test]
+    fn fuse_sge_bnez() {
+        let mut instructions = vec![
+            IC10Instruction::Sge(register(0), reg(1), reg(2)),
+            IC10Instruction::BranchNotEqualZero(reg(0), label("target")),
+        ];
+        fuse_branches(&mut instructions);
+        assert_eq!(instructions.len(), 1);
+        assert!(matches!(
+            &instructions[0],
+            IC10Instruction::BranchGreaterEqual(
+                Operand::Register(Register::R1),
+                Operand::Register(Register::R2),
+                JumpTarget::Label(name),
+            ) if name == "target"
+        ));
+    }
+
+    #[test]
+    fn fuse_sle_bnez() {
+        let mut instructions = vec![
+            IC10Instruction::Sle(register(0), reg(1), reg(2)),
+            IC10Instruction::BranchNotEqualZero(reg(0), label("target")),
+        ];
+        fuse_branches(&mut instructions);
+        assert_eq!(instructions.len(), 1);
+        assert!(matches!(
+            &instructions[0],
+            IC10Instruction::BranchLessEqual(
+                Operand::Register(Register::R1),
+                Operand::Register(Register::R2),
+                JumpTarget::Label(name),
+            ) if name == "target"
+        ));
+    }
+
+    #[test]
+    fn fuse_snan_to_bnan() {
+        let mut instructions = vec![
+            IC10Instruction::Snan(register(0), reg(1)),
+            IC10Instruction::BranchNotEqualZero(reg(0), label("target")),
+        ];
+        fuse_branches(&mut instructions);
+        assert_eq!(instructions.len(), 1);
+        assert!(matches!(
+            &instructions[0],
+            IC10Instruction::BranchNaN(
+                Operand::Register(Register::R1),
+                JumpTarget::Label(name),
+            ) if name == "target"
+        ));
+    }
+
+    #[test]
     fn fuse_multiple_in_sequence() {
         let mut instructions = vec![
             IC10Instruction::Sgt(register(0), reg(1), reg(2)),

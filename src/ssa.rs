@@ -897,4 +897,25 @@ mod tests {
             "expected phi for result in function with parameter-dependent branch"
         );
     }
+
+    #[test]
+    fn parameter_reassigned_in_loop_gets_phi() {
+        let program = build_ssa(
+            r#"device out: d0;
+            fn foo(n: i53) -> i53 {
+                let mut x: i53 = n;
+                while x < 100 {
+                    x = x + 1;
+                }
+                return x;
+            }
+            fn main() { out.Setting = foo(0); }"#,
+        );
+        let foo = get_function(&program, "foo");
+        let phis = collect_phis(foo);
+        assert!(
+            !phis.is_empty(),
+            "parameter modified inside loop should produce a phi at the loop header"
+        );
+    }
 }

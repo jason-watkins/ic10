@@ -8,7 +8,9 @@ mod inline;
 mod utilities;
 
 use block_deduplication::deduplicate_blocks;
-use block_simplification::{coalesce_blocks, invert_negated_branches, merge_empty_blocks, remove_unreachable_blocks};
+use block_simplification::{
+    coalesce_blocks, invert_negated_branches, merge_empty_blocks, remove_unreachable_blocks,
+};
 use constant_propagation::constant_propagation;
 use copy_propagation::copy_propagation;
 use dead_code_elimination::dead_code_elimination;
@@ -710,6 +712,173 @@ mod tests {
         assert!(
             has_constant_12,
             "double(add_one(5)) = double(6) = 12 should fold to constant"
+        );
+    }
+
+    #[test]
+    fn fixpoint_convergence_multiple_iterations() {
+        let program = build_optimized(
+            r#"
+            device out: d0;
+            fn main() {
+                let a: i53 = 2;
+                let b: i53 = 3;
+                let c: i53 = a + b;
+                let d: i53 = c;
+                let e: i53 = d * 1;
+                out.Setting = e;
+            }
+            "#,
+        );
+        let main = get_function(&program, "main");
+        assert!(
+            !has_binary_instruction(main),
+            "all arithmetic should be folded after multiple iterations \
+             (copy prop reveals constants for subsequent folding)"
+        );
+        let has_constant_5 = main.blocks.iter().any(|block| {
+            block.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::Assign {
+                        operation: Operation::Constant(v),
+                        ..
+                    } if *v == 5.0
+                )
+            })
+        });
+        assert!(
+            has_constant_5,
+            "2+3=5, copy d=c, d*1=5 should all fold to constant 5"
+        );
+    }
+
+    #[test]
+    fn branch_inversion() {
+        use crate::ir::UnaryOperator;
+        use crate::ir::cfg::Terminator;
+
+        let mut program = build_ssa_unoptimized(
+            r#"
+            device io: d0;
+            fn main() {
+                let x: f64 = io.Setting;
+                let cond: bool = x > 0.0;
+                if !cond {
+                    io.Setting = 1;
+                } else {
+                    io.Setting = 2;
+                }
+            }
+            "#,
+        );
+        let function = program
+            .functions
+            .iter_mut()
+            .find(|f| f.name == "main")
+            .unwrap();
+
+        let has_not_before = function.blocks.iter().any(|block| {
+            block.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::Assign {
+                        operation: Operation::Unary {
+                            operator: UnaryOperator::Not,
+                            ..
+                        },
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(
+            has_not_before,
+            "unoptimized program should contain a Not operation for !cond"
+        );
+
+        block_simplification::invert_negated_branches(function);
+
+        let branch_conditions_use_not = function.blocks.iter().any(|block| {
+            if let Terminator::Branch { condition, .. } = &block.terminator {
+                function.blocks.iter().any(|b| {
+                    b.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            Instruction::Assign {
+                                dest,
+                                operation: Operation::Unary {
+                                    operator: UnaryOperator::Not,
+                                    ..
+                                },
+                            } if *dest == *condition
+                        )
+                    })
+                })
+            } else {
+                false
+            }
+        });
+        assert!(
+            !branch_conditions_use_not,
+            "after inversion, no branch should use a Not-defined condition"
+        );
+    }
+
+    #[test]
+    fn block_deduplication() {
+        use crate::ir::cfg::Terminator;
+
+        let mut program = build_ssa_unoptimized(
+            r#"
+            device io: d0;
+            fn main() {
+                let x: f64 = io.Setting;
+                if x > 0.0 {
+                    io.Mode = 1;
+                } else {
+                    io.Mode = 1;
+                }
+            }
+            "#,
+        );
+        let function = program
+            .functions
+            .iter_mut()
+            .find(|f| f.name == "main")
+            .unwrap();
+        let blocks_before = function
+            .blocks
+            .iter()
+            .filter(|b| !matches!(b.terminator, Terminator::None) || !b.instructions.is_empty())
+            .count();
+        let changed = block_deduplication::deduplicate_blocks(function);
+        assert!(changed, "deduplication should find identical branches");
+        let blocks_after = function
+            .blocks
+            .iter()
+            .filter(|b| !matches!(b.terminator, Terminator::None) || !b.instructions.is_empty())
+            .count();
+        assert!(
+            blocks_after < blocks_before,
+            "deduplication should reduce block count: before={}, after={}",
+            blocks_before,
+            blocks_after,
+        );
+    }
+
+    #[test]
+    fn unused_intrinsic_result_eliminated() {
+        let before =
+            build_ssa_unoptimized("fn main() { let x: f64 = 2.0; let _y: f64 = sqrt(x); }");
+        let after = build_optimized("fn main() { let x: f64 = 2.0; let _y: f64 = sqrt(x); }");
+        let before_count = count_instructions(get_function(&before, "main"));
+        let after_count = count_instructions(get_function(&after, "main"));
+        assert!(
+            after_count < before_count,
+            "DCE should eliminate unused intrinsic: before={}, after={}",
+            before_count,
+            after_count,
         );
     }
 }

@@ -10,10 +10,9 @@ use crate::ir::ast::{
 };
 use crate::ir::bound::{
     AssignStatement, AssignmentTarget, BatchWriteStatement, Block, BreakStatement,
-    ContinueStatement, ElseClause, Expression, ExpressionKind, ExpressionStatement,
-    ForStatement, FunctionDeclaration, IfStatement, LetStatement, Parameter, Program,
-    ReturnStatement, SleepStatement, Statement, SymbolId, SymbolInfo, SymbolKind, SymbolTable,
-    WhileStatement,
+    ContinueStatement, ElseClause, Expression, ExpressionKind, ExpressionStatement, ForStatement,
+    FunctionDeclaration, IfStatement, LetStatement, Parameter, Program, ReturnStatement,
+    SleepStatement, Statement, SymbolId, SymbolInfo, SymbolKind, SymbolTable, WhileStatement,
 };
 use crate::ir::{BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
@@ -498,7 +497,10 @@ impl Binder {
                 if hash_bound.ty != Type::F64 {
                     self.error(
                         s.hash_expr.span,
-                        format!("batch_write hash must be `f64`, found `{:?}`", hash_bound.ty),
+                        format!(
+                            "batch_write hash must be `f64`, found `{:?}`",
+                            hash_bound.ty
+                        ),
                     );
                 }
                 let value_bound = self.bind_expression(&s.value);
@@ -1331,23 +1333,32 @@ mod tests {
 
     #[test]
     fn let_type_annotation_mismatch_is_error() {
-        assert!(has_error("fn main() { let x: f64 = 42; }", "type mismatch"));
+        let errors = bind_errors("fn main() { let x: f64 = 42; }");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message,
+            "type mismatch: declared `F64` but initializer has type `I53`"
+        );
     }
 
     #[test]
     fn f64_to_bool_without_device_read_is_error() {
-        assert!(has_error(
-            "fn main() { let x: f64 = 1.0; let b: bool = x; }",
-            "type mismatch"
-        ));
+        let errors = bind_errors("fn main() { let x: f64 = 1.0; let b: bool = x; }");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message,
+            "type mismatch: declared `Bool` but initializer has type `F64`"
+        );
     }
 
     #[test]
     fn f64_to_i53_without_device_read_is_error() {
-        assert!(has_error(
-            "fn main() { let x: f64 = 1.0; let n: i53 = x; }",
-            "type mismatch"
-        ));
+        let errors = bind_errors("fn main() { let x: f64 = 1.0; let n: i53 = x; }");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message,
+            "type mismatch: declared `I53` but initializer has type `F64`"
+        );
     }
 
     // 4.3 / 4.4 — const folding
@@ -1482,8 +1493,7 @@ mod tests {
 
     #[test]
     fn device_read_with_bool_annotation() {
-        let program =
-            bind_ok("device sensor: d0; fn main() { let on: bool = sensor.On; }");
+        let program = bind_ok("device sensor: d0; fn main() { let on: bool = sensor.On; }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
         };
@@ -1498,8 +1508,7 @@ mod tests {
 
     #[test]
     fn device_read_with_i53_annotation() {
-        let program =
-            bind_ok("device sensor: d0; fn main() { let count: i53 = sensor.Count; }");
+        let program = bind_ok("device sensor: d0; fn main() { let count: i53 = sensor.Count; }");
         let Statement::Let(s) = &program.functions[0].body.statements[0] else {
             panic!("expected let");
         };
@@ -1532,10 +1541,12 @@ mod tests {
 
     #[test]
     fn mixed_i53_f64_arithmetic_is_error() {
-        assert!(has_error(
-            "fn main() { let a = 1; let b = 1.0; let c = a + b; }",
-            "type mismatch"
-        ));
+        let errors = bind_errors("fn main() { let a = 1; let b = 1.0; let c = a + b; }");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message,
+            "type mismatch in arithmetic operator: `I53` and `F64`"
+        );
     }
 
     #[test]
@@ -1658,5 +1669,127 @@ mod tests {
             panic!("expected let");
         };
         assert_eq!(s.init.ty, Type::I53);
+    }
+
+    #[test]
+    fn duplicate_variable_in_same_scope_is_allowed() {
+        let program = bind_ok("fn main() { let x = 5; let x = 10; }");
+        let func = &program.functions[0];
+        assert_eq!(func.body.statements.len(), 2);
+    }
+
+    #[test]
+    fn variable_shadowing_in_nested_scope() {
+        let program = bind_ok("fn main() { let x: i53 = 5; if true { let x: f64 = 3.0; } }");
+        let func = &program.functions[0];
+        let Statement::Let(outer) = &func.body.statements[0] else {
+            panic!("expected let statement");
+        };
+        assert_eq!(program.symbols.get(outer.symbol_id).ty, Type::I53);
+        let Statement::If(if_stmt) = &func.body.statements[1] else {
+            panic!("expected if statement");
+        };
+        let Statement::Let(inner) = &if_stmt.then_block.statements[0] else {
+            panic!("expected inner let statement");
+        };
+        assert_eq!(program.symbols.get(inner.symbol_id).ty, Type::F64);
+        assert_ne!(
+            outer.symbol_id,
+            inner.symbol_id,
+            "shadowed variable must get a distinct symbol ID"
+        );
+    }
+
+    #[test]
+    fn recursive_function_call_binds_correctly() {
+        let program = bind_ok(
+            "fn countdown(n: i53) -> i53 { if n <= 0 { return 0; } return countdown(n - 1); } fn main() { countdown(10); }",
+        );
+        let countdown_fn = &program.functions[0];
+        let Statement::Return(ret) = &countdown_fn.body.statements[1] else {
+            panic!("expected return as second statement of countdown");
+        };
+        let value = ret.value.as_ref().expect("return should have a value");
+        assert!(
+            matches!(value.kind, ExpressionKind::Call(_, _)),
+            "recursive call should bind to a Call expression, got {:?}",
+            value.kind
+        );
+    }
+
+    #[test]
+    fn multiple_return_paths_type_mismatch_is_error() {
+        let errors =
+            bind_errors("fn f() -> i53 { if true { return 1; } return 2.0; } fn main() {}");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message,
+            "return type mismatch: expected `I53`, found `F64`"
+        );
+    }
+
+    #[test]
+    fn for_loop_variable_infers_i53_type() {
+        let program = bind_ok("device out: d0; fn main() { for i in 0..10 { out.Setting = i; } }");
+        let func = &program.functions[0];
+        if let Statement::For(f) = &func.body.statements[0] {
+            let info = program.symbols.get(f.variable);
+            assert_eq!(info.ty, Type::I53);
+        } else {
+            panic!("expected for statement");
+        }
+    }
+
+    #[test]
+    fn batch_write_binding() {
+        let program = bind_ok(r#"fn main() { batch_write(hash("StructureWallType"), On, 1.0); }"#);
+        let func = &program.functions[0];
+        let Statement::BatchWrite(s) = &func.body.statements[0] else {
+            panic!("expected BatchWrite statement");
+        };
+        assert!(
+            matches!(s.hash_expr.kind, ExpressionKind::Literal(_)),
+            "hash() should fold to a literal"
+        );
+    }
+
+    #[test]
+    fn is_nan_intrinsic_requires_f64_argument() {
+        let errors = bind_errors("fn main() { let x = is_nan(true); }");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message,
+            "intrinsic functions require `f64` arguments, found `Bool`"
+        );
+    }
+
+    #[test]
+    fn is_nan_intrinsic_result_is_bool() {
+        let program = bind_ok("fn main() { let x: f64 = 1.0; let y: bool = is_nan(x); }");
+        let func = &program.functions[0];
+        let Statement::Let(s) = &func.body.statements[1] else {
+            panic!("expected let");
+        };
+        assert_eq!(s.init.ty, Type::Bool);
+    }
+
+    #[test]
+    fn select_intrinsic_requires_bool_condition() {
+        let errors = bind_errors("fn main() { let x = select(1, 2.0, 3.0); }");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message,
+            "`select` condition must be `bool`, found `I53`"
+        );
+    }
+
+    #[test]
+    fn select_intrinsic_branches_must_match_type() {
+        let errors = bind_errors("fn main() { let x = select(true, 1, 2.0); }");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message,
+            "`select` branches have different types: `I53` vs `F64`"
+        );
     }
 }

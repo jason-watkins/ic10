@@ -1073,19 +1073,64 @@ mod tests {
     fn for_loop_desugaring() {
         let program = build_cfg("fn main() { for i in 0..10 { yield; } }");
         let main = get_function(&program, "main");
-        assert!(main.blocks.len() >= 4);
+        assert_eq!(main.blocks.len(), 4);
+        assert!(matches!(main.blocks[0].role, BlockRole::Entry));
+        assert!(matches!(main.blocks[1].role, BlockRole::LoopStart(_)));
+        assert!(matches!(main.blocks[2].role, BlockRole::LoopContinue(_)));
+        assert!(matches!(main.blocks[3].role, BlockRole::LoopEnd(_)));
+
+        let init = &main.blocks[0].instructions;
+        assert!(
+            matches!(&init[0], Instruction::Assign { operation: Operation::Constant(v), .. } if *v == 0.0)
+        );
+        assert!(
+            matches!(&init[1], Instruction::Assign { operation: Operation::Constant(v), .. } if *v == 10.0)
+        );
+        assert!(
+            matches!(&init[2], Instruction::Assign { operation: Operation::Constant(v), .. } if *v == 1.0)
+        );
+
+        assert!(
+            main.blocks[1]
+                .instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::Yield))
+        );
+
+        let cont = &main.blocks[2].instructions;
+        assert!(cont.iter().any(|i| matches!(
+            i,
+            Instruction::Assign {
+                operation: Operation::Binary {
+                    operator: BinaryOperator::Add,
+                    ..
+                },
+                ..
+            }
+        )));
     }
 
     #[test]
     fn break_in_loop() {
         let program = build_cfg("fn main() { let x = true; loop { if x { break; } yield; } }");
         let main = get_function(&program, "main");
-        let has_jump_terminator = main.blocks.iter().any(|b| {
-            matches!(&b.terminator, Terminator::Jump(target) if {
-                !main.blocks[target.0].predecessors.is_empty()
-            })
-        });
-        assert!(has_jump_terminator);
+
+        let exit_block = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopEnd(_)))
+            .expect("should have a LoopEnd block");
+
+        let break_block = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::IfTrue(_)))
+            .expect("should have an IfTrue block (the break branch)");
+
+        assert!(
+            matches!(break_block.terminator, Terminator::Jump(target) if target == exit_block.id),
+            "break should jump to the loop exit block"
+        );
     }
 
     #[test]
@@ -1371,7 +1416,23 @@ mod tests {
     fn continue_in_for_loop() {
         let program = build_cfg("fn main() { for i in 0..5 { if i == 2 { continue; } yield; } }");
         let main = get_function(&program, "main");
-        assert!(main.blocks.len() >= 5);
+
+        let continue_block = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopContinue(_)))
+            .expect("should have a LoopContinue block");
+
+        let if_true_block = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::IfTrue(_)))
+            .expect("should have an IfTrue block (the continue branch)");
+
+        assert!(
+            matches!(if_true_block.terminator, Terminator::Jump(target) if target == continue_block.id),
+            "continue should jump to the loop continue (increment) block"
+        );
     }
 
     #[test]
@@ -1379,7 +1440,48 @@ mod tests {
         let program =
             build_cfg("fn main() { loop { let mut x = true; while x { x = false; } yield; } }");
         let main = get_function(&program, "main");
-        assert!(main.blocks.len() >= 5);
+        assert_eq!(main.blocks.len(), 7);
+
+        let outer_loop_starts: Vec<_> = main
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.role, BlockRole::LoopStart(1)))
+            .collect();
+        let inner_loop_starts: Vec<_> = main
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.role, BlockRole::LoopStart(2)))
+            .collect();
+        assert_eq!(
+            outer_loop_starts.len(),
+            1,
+            "should have one outer LoopStart"
+        );
+        assert_eq!(
+            inner_loop_starts.len(),
+            1,
+            "should have one inner LoopStart"
+        );
+
+        let outer_continue = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopContinue(1)))
+            .unwrap();
+        assert!(
+            matches!(outer_continue.terminator, Terminator::Jump(target) if target == outer_loop_starts[0].id),
+            "outer continue should jump back to outer loop start"
+        );
+
+        let inner_end = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopEnd(2)))
+            .unwrap();
+        assert!(
+            matches!(inner_end.terminator, Terminator::Jump(target) if target == outer_continue.id),
+            "inner loop exit should flow to outer loop continue"
+        );
     }
 
     #[test]
@@ -1397,7 +1499,36 @@ mod tests {
             }"#,
         );
         let main = get_function(&program, "main");
-        assert!(main.blocks.len() >= 5);
+        assert_eq!(main.blocks.len(), 7);
+
+        assert!(matches!(main.blocks[0].role, BlockRole::Entry));
+        assert!(matches!(
+            main.blocks[0].terminator,
+            Terminator::Branch { .. }
+        ));
+
+        let if_true_count = main
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.role, BlockRole::IfTrue(_)))
+            .count();
+        let if_false_count = main
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.role, BlockRole::IfFalse(_)))
+            .count();
+        assert_eq!(if_true_count, 2, "two then-branches (if and else-if)");
+        assert_eq!(if_false_count, 2, "two else-branches (else-if and else)");
+
+        let outer_else = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::IfFalse(1)))
+            .unwrap();
+        assert!(
+            matches!(outer_else.terminator, Terminator::Branch { .. }),
+            "the else-if block should branch again"
+        );
     }
 
     #[test]
@@ -1655,12 +1786,32 @@ mod tests {
         let program =
             build_cfg("fn main() { 'outer: for i in 0..3 { for j in 0..3 { break 'outer; } } }");
         let main = get_function(&program, "main");
-        assert!(
-            main.blocks
-                .iter()
-                .any(|b| matches!(b.role, BlockRole::LoopEnd(1))),
-            "outer for-loop should have an exit block"
-        );
+
+        let outer_exit = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopEnd(1)))
+            .expect("outer for-loop should have an exit block");
+
+        let inner_body = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopBody(2) | BlockRole::LoopStart(2)))
+            .expect("inner loop body should exist");
+
+        match &inner_body.terminator {
+            Terminator::Jump(target) => {
+                assert_eq!(
+                    target.0,
+                    main.blocks
+                        .iter()
+                        .position(|b| std::ptr::eq(b, outer_exit))
+                        .unwrap(),
+                    "break 'outer should jump to outer for-loop exit"
+                );
+            }
+            other => panic!("expected Jump terminator for break, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1690,5 +1841,165 @@ mod tests {
             }
             other => panic!("expected Jump terminator, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn labeled_while_loop_break_targets_exit() {
+        let program = build_cfg("fn main() { 'outer: while true { break 'outer; } }");
+        let main = get_function(&program, "main");
+        let loop_end = main
+            .blocks
+            .iter()
+            .position(|b| matches!(b.role, BlockRole::LoopEnd(_)))
+            .expect("should have a LoopEnd block");
+        let loop_body = main
+            .blocks
+            .iter()
+            .find(|b| matches!(b.role, BlockRole::LoopStart(_)))
+            .expect("should have a LoopStart block");
+        match &loop_body.terminator {
+            Terminator::Jump(target) => assert_eq!(target.0, loop_end),
+            other => panic!("expected Jump to loop exit, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn labeled_while_loop_continue_targets_header() {
+        let program = build_cfg("fn main() { 'outer: while true { continue 'outer; } }");
+        let main = get_function(&program, "main");
+        let loop_start_idx = main
+            .blocks
+            .iter()
+            .position(|b| matches!(b.role, BlockRole::LoopStart(_)))
+            .expect("should have a LoopStart block");
+        let loop_body = &main.blocks[loop_start_idx];
+        match &loop_body.terminator {
+            Terminator::Jump(target) => {
+                let target_block = &main.blocks[target.0];
+                assert!(
+                    matches!(
+                        target_block.role,
+                        BlockRole::LoopStart(_) | BlockRole::LoopContinue(_)
+                    ),
+                    "continue should jump to loop header or continue block, got {:?}",
+                    target_block.role,
+                );
+            }
+            other => panic!("expected Jump for continue, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn batch_write_lowering() {
+        let program =
+            build_cfg(r#"fn main() { batch_write(hash("StructureWallType"), On, 1.0); }"#);
+        let main = get_function(&program, "main");
+        let has_batch_write = main.blocks.iter().any(|b| {
+            b.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::BatchWrite { field, .. } if field == "On"))
+        });
+        assert!(
+            has_batch_write,
+            "should lower batch_write to BatchWrite instruction"
+        );
+    }
+
+    #[test]
+    fn logical_and_lowers_to_and_instruction() {
+        let program = build_cfg(
+            "device out: d0; fn main() { let a: bool = true; let b: bool = false; out.Setting = a && b; }",
+        );
+        let main = get_function(&program, "main");
+        let has_and = main.blocks.iter().any(|b| {
+            b.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::Assign {
+                        operation: Operation::Binary {
+                            operator: BinaryOperator::And,
+                            ..
+                        },
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(has_and, "a && b should lower to BinaryOperator::And");
+    }
+
+    #[test]
+    fn logical_or_lowers_to_or_instruction() {
+        let program = build_cfg(
+            "device out: d0; fn main() { let a: bool = true; let b: bool = false; out.Setting = a || b; }",
+        );
+        let main = get_function(&program, "main");
+        let has_or = main.blocks.iter().any(|b| {
+            b.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::Assign {
+                        operation: Operation::Binary {
+                            operator: BinaryOperator::Or,
+                            ..
+                        },
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(has_or, "a || b should lower to BinaryOperator::Or");
+    }
+
+    #[test]
+    fn is_nan_lowering() {
+        let program = build_cfg(
+            "device sensor: d0; device out: d1; fn main() { let x: f64 = sensor.Value; out.Setting = is_nan(x); }",
+        );
+        let main = get_function(&program, "main");
+        let has_is_nan = main.blocks.iter().any(|b| {
+            b.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::IntrinsicCall {
+                        function: Intrinsic::IsNan,
+                        ..
+                    }
+                )
+            })
+        });
+        assert!(
+            has_is_nan,
+            "is_nan(x) should lower to IntrinsicCall with Intrinsic::IsNan"
+        );
+    }
+
+    #[test]
+    fn nested_labeled_loops_independent_targets() {
+        let program = build_cfg(
+            r#"
+            fn main() {
+                'a: loop {
+                    'b: loop {
+                        if true { break 'b; }
+                        if false { break 'a; }
+                    }
+                }
+            }
+            "#,
+        );
+        let main = get_function(&program, "main");
+        let loop_ends: Vec<usize> = main
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| matches!(b.role, BlockRole::LoopEnd(_)))
+            .map(|(i, _)| i)
+            .collect();
+        assert!(
+            loop_ends.len() >= 2,
+            "should have at least two LoopEnd blocks, got {}",
+            loop_ends.len()
+        );
     }
 }

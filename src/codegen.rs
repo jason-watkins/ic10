@@ -90,7 +90,12 @@ fn format_float(value: f64) -> String {
         let integer = value as i64;
         return integer.to_string();
     }
-    format!("{value}")
+    let s = format!("{value}");
+    if s.len() > 20 {
+        format!("{value:e}")
+    } else {
+        s
+    }
 }
 
 impl fmt::Display for IC10Instruction {
@@ -448,6 +453,36 @@ mod tests {
         compile(source).lines().map(String::from).collect()
     }
 
+    fn compile_no_inline(source: &str) -> String {
+        let (ast, parse_diagnostics) = parse(source);
+        let errors: Vec<_> = parse_diagnostics
+            .iter()
+            .filter(|d| d.severity == crate::diagnostic::Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "parse errors: {errors:#?}");
+        let (bound, _) =
+            bind(&ast).unwrap_or_else(|diagnostics| panic!("bind errors: {diagnostics:#?}"));
+        let (mut program, _) = cfg::build(&bound);
+        ssa::construct_program(&mut program);
+        let mut opt_features = opt::Features::from_opt_level(opt::OptLevel::O2);
+        opt_features.inline = false;
+        opt::optimize_program(&mut program, opt::OptLevel::O2, &opt_features);
+        let ic10_program = regalloc::allocate_registers(&mut program, false, &opt_features)
+            .unwrap_or_else(|diagnostics| panic!("regalloc errors: {diagnostics:#?}"));
+        let (text, diagnostics) = generate(&ic10_program, false);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| d.severity != crate::diagnostic::Severity::Error),
+            "codegen errors: {diagnostics:#?}"
+        );
+        text
+    }
+
+    fn compile_no_inline_lines(source: &str) -> Vec<String> {
+        compile_no_inline(source).lines().map(String::from).collect()
+    }
+
     #[test]
     fn empty_main_emits_hcf() {
         let output = compile("fn main() {}");
@@ -502,7 +537,7 @@ mod tests {
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("l r") && line.contains("d0 Temperature")),
+                .any(|line| line.starts_with("l r") && line.contains("d0 Temperature")),
             "expected load from d0: {lines:?}"
         );
         assert!(
@@ -513,19 +548,11 @@ mod tests {
 
     #[test]
     fn function_call_emits_jal() {
-        let lines = compile_lines(
+        let lines = compile_no_inline_lines(
             r#"
-            device io: d0;
-            fn compute(a: f64, b: f64) -> f64 {
-                let c = a + b;
-                let d = c * a;
-                let e = d - b;
-                let f = e + c;
-                return f * d;
-            }
+            fn add(a: f64, b: f64) -> f64 { return a + b; }
             fn main() {
-                io.Setting = compute(1.0, 2.0);
-                io.Setting = compute(3.0, 4.0);
+                let x = add(1.0, 2.0);
             }
             "#,
         );
@@ -537,24 +564,15 @@ mod tests {
 
     #[test]
     fn non_leaf_function_saves_ra() {
-        let lines = compile_lines(
+        let lines = compile_no_inline_lines(
             r#"
-            device io: d0;
-            fn leaf(a: f64, b: f64) -> f64 {
-                let c = a + b;
-                let d = c * a;
-                let e = d - b;
-                let f = e + c;
-                return f * d;
-            }
+            fn leaf(a: f64) -> f64 { return a + a; }
             fn middle(x: f64) -> f64 {
-                let a = leaf(x, x);
-                let b = leaf(a, x);
-                return a + b;
+                let a = leaf(x);
+                return a;
             }
             fn main() {
-                io.Setting = middle(1.0);
-                io.Setting = middle(2.0);
+                let r = middle(1.0);
             }
             "#,
         );
@@ -570,19 +588,11 @@ mod tests {
 
     #[test]
     fn return_via_j_ra() {
-        let lines = compile_lines(
+        let lines = compile_no_inline_lines(
             r#"
-            device io: d0;
-            fn helper(a: f64, b: f64) -> f64 {
-                let c = a + b;
-                let d = c * a;
-                let e = d - b;
-                let f = e + c;
-                return f * d;
-            }
+            fn helper(a: f64, b: f64) -> f64 { return a + b; }
             fn main() {
-                io.Setting = helper(1.0, 2.0);
-                io.Setting = helper(3.0, 4.0);
+                let x = helper(1.0, 2.0);
             }
             "#,
         );
@@ -878,6 +888,55 @@ mod tests {
             "128 lines should produce no diagnostics"
         );
         assert_eq!(text.lines().count(), 128);
+    }
+
+    #[test]
+    fn format_float_very_small() {
+        assert_eq!(format_float(1e-300), "1e-300");
+    }
+
+    #[test]
+    fn format_float_subnormal() {
+        let subnormal = f64::MIN_POSITIVE / 2.0;
+        assert!(subnormal.is_subnormal(), "precondition: value must be subnormal");
+        assert_eq!(format_float(subnormal), "1.1125369292536007e-308");
+    }
+
+    #[test]
+    fn instruction_display_batch_write() {
+        let batch_store = IC10Instruction::BatchStore {
+            device_hash: Operand::Literal(12345.0),
+            logic_type: "On".to_string(),
+            source: Operand::Register(Register::R0),
+        };
+        assert_eq!(batch_store.to_string(), "sb 12345 On r0");
+    }
+
+    #[test]
+    fn label_resolves_to_line_number_in_multi_function_output() {
+        let lines = compile_no_inline_lines(
+            r#"
+            fn add(a: f64, b: f64) -> f64 { return a + b; }
+            fn main() {
+                let x = add(1.0, 2.0);
+            }
+            "#,
+        );
+        let jal_line = lines
+            .iter()
+            .find(|line| line.starts_with("jal "))
+            .expect("expected a 'jal' instruction");
+        let target: usize = jal_line
+            .strip_prefix("jal ")
+            .unwrap()
+            .trim()
+            .parse()
+            .expect("jal target should be a resolved line number");
+        assert!(
+            target < lines.len(),
+            "jal target {target} must be within program bounds (0..{})",
+            lines.len()
+        );
     }
 
     #[test]

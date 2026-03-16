@@ -31,4 +31,9 @@ mod tests {
         assert_eq!(crc32("StructureSolarPanel"), -2045627372.0);
         assert_eq!(crc32("StructureSolarPanelDual"), -539224550.0);
     }
+
+    #[test]
+    fn empty_string_hash() {
+        assert_eq!(crc32(""), 0.0);
+    }
 }

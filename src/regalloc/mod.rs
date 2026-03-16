@@ -1429,7 +1429,9 @@ mod tests {
 
     #[test]
     fn end_to_end_single_constant() {
-        let program = compile_to_ic10("fn main() { let _x: i53 = 42; }");
+        let program = compile_to_ic10(
+            "device out: d0; fn main() { let x: i53 = 42; out.Setting = x; }",
+        );
         let instructions = all_instructions(&program);
         let has_move_42 = instructions.iter().any(|instruction| {
             matches!(instruction, IC10Instruction::Move(_, Operand::Literal(v)) if (*v - 42.0).abs() < f64::EPSILON)
@@ -1439,8 +1441,9 @@ mod tests {
 
     #[test]
     fn end_to_end_arithmetic_expression() {
-        let program =
-            compile_to_ic10("fn main() { let a: i53 = 3; let b: i53 = 7; let _c: i53 = a + b; }");
+        let program = compile_to_ic10(
+            "device out: d0; fn main() { let a: i53 = 3; let b: i53 = 7; let c: i53 = a + b; out.Setting = c; }",
+        );
         let instructions = all_instructions(&program);
         let has_add = instructions
             .iter()
@@ -1885,6 +1888,88 @@ mod tests {
                 "should have at least one callee-saved push/pop pair"
             );
         }
+    }
+
+    #[test]
+    fn stack_depth_not_limited_at_compile_time() {
+        let program = compile_to_ic10(
+            r#"
+            device out: d0;
+            fn main() {
+                let a: i53 = 1;  let b: i53 = 2;  let c: i53 = 3;
+                let d: i53 = 4;  let e: i53 = 5;  let f: i53 = 6;
+                let g: i53 = 7;  let h: i53 = 8;  let i: i53 = 9;
+                let j: i53 = 10; let k: i53 = 11; let l: i53 = 12;
+                let m: i53 = 13; let n: i53 = 14; let o: i53 = 15;
+                let p: i53 = 16; let q: i53 = 17; let r: i53 = 18;
+                let s: i53 = 19; let t: i53 = 20;
+                out.Setting = a + b + c + d + e + f + g + h + i + j
+                            + k + l + m + n + o + p + q + r + s + t;
+            }
+            "#,
+        );
+        let instructions = all_instructions(&program);
+        let push_count = instructions
+            .iter()
+            .filter(|i| matches!(i, IC10Instruction::Push(..)))
+            .count();
+        assert!(
+            push_count > 0,
+            "20 simultaneous live values should require spilling"
+        );
+    }
+
+    #[test]
+    fn callee_save_restore_order_is_lifo() {
+        let program = compile_to_ic10(
+            r#"
+            fn helper() -> i53 { return 42; }
+            fn caller() -> i53 {
+                let x: i53 = 10;
+                let _result: i53 = helper();
+                let value: i53 = x + 1;
+                return value;
+            }
+            fn main() { let _x: i53 = caller(); }
+            "#,
+        );
+        let caller_fn = program
+            .functions
+            .iter()
+            .find(|f| f.name == "caller")
+            .expect("should have caller function");
+
+        let pushed: Vec<Register> = caller_fn
+            .instructions
+            .iter()
+            .filter_map(|instruction| match instruction {
+                IC10Instruction::Push(Operand::Register(register)) => Some(*register),
+                _ => None,
+            })
+            .collect();
+        let popped: Vec<Register> = caller_fn
+            .instructions
+            .iter()
+            .filter_map(|instruction| match instruction {
+                IC10Instruction::Pop(register) => Some(*register),
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            !pushed.is_empty(),
+            "non-leaf function should have at least one push"
+        );
+        assert_eq!(
+            pushed.len(),
+            popped.len(),
+            "pushes and pops must be balanced"
+        );
+        let pushed_reversed: Vec<Register> = pushed.iter().copied().rev().collect();
+        assert_eq!(
+            pushed_reversed, popped,
+            "popped registers must be in reverse order of pushed registers (LIFO)"
+        );
     }
 
     #[test]

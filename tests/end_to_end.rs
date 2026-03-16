@@ -58,8 +58,8 @@ fn compile_file(path: &str) -> String {
 fn hello_compiles() {
     let output = compile_file("tests/examples/hello.ic20");
     assert!(
-        output.contains("s d0 On"),
-        "expected device write: {output}"
+        output.lines().any(|l| l.starts_with("s d0 On")),
+        "expected a line starting with 's d0 On': {output}"
     );
 }
 
@@ -74,12 +74,12 @@ fn simple_variable() {
     let output =
         compile("device out: d0;\nfn main() { let x: i53 = 42; out.Setting = x; }").unwrap();
     assert!(
-        output.contains("42"),
-        "expected literal 42 in output: {output}"
+        output.lines().any(|l| l.contains("42")),
+        "expected a line containing literal 42: {output}"
     );
     assert!(
-        output.contains("s d0 Setting"),
-        "expected device write: {output}"
+        output.lines().any(|l| l.starts_with("s d0 Setting")),
+        "expected a line starting with 's d0 Setting': {output}"
     );
 }
 
@@ -88,8 +88,8 @@ fn device_write_bool_value() {
     let output =
         compile("device light: d0;\nfn main() { let on: bool = true; light.On = on; }").unwrap();
     assert!(
-        output.contains("s d0 On"),
-        "expected device write: {output}"
+        output.lines().any(|l| l.starts_with("s d0 On")),
+        "expected a line starting with 's d0 On': {output}"
     );
 }
 
@@ -97,8 +97,8 @@ fn device_write_bool_value() {
 fn device_write_bool_literal() {
     let output = compile("device light: d0;\nfn main() { light.On = true; }").unwrap();
     assert!(
-        output.contains("s d0 On"),
-        "expected device write: {output}"
+        output.lines().any(|l| l.starts_with("s d0 On")),
+        "expected a line starting with 's d0 On': {output}"
     );
 }
 
@@ -116,12 +116,14 @@ fn device_read_bool_annotation() {
     )
     .unwrap();
     assert!(
-        output.contains("l r") && output.contains("d0 On"),
-        "expected device read: {output}"
+        output
+            .lines()
+            .any(|l| l.starts_with("l r") && l.contains("d0 On")),
+        "expected a line with 'l r… d0 On': {output}"
     );
     assert!(
-        output.contains("s d1 Setting"),
-        "expected device write: {output}"
+        output.lines().any(|l| l.starts_with("s d1 Setting")),
+        "expected a line starting with 's d1 Setting': {output}"
     );
 }
 
@@ -139,12 +141,14 @@ fn device_read_i53_annotation() {
     )
     .unwrap();
     assert!(
-        output.contains("l r") && output.contains("d0 Count"),
-        "expected device read: {output}"
+        output
+            .lines()
+            .any(|l| l.starts_with("l r") && l.contains("d0 Count")),
+        "expected a line with 'l r… d0 Count': {output}"
     );
     assert!(
-        output.contains("s d1 Setting"),
-        "expected device write: {output}"
+        output.lines().any(|l| l.starts_with("s d1 Setting")),
+        "expected a line starting with 's d1 Setting': {output}"
     );
 }
 
@@ -152,20 +156,28 @@ fn device_read_i53_annotation() {
 fn schmitt_trigger_compiles() {
     let output = compile_file("tests/examples/schmitt_trigger.ic20");
     assert!(
-        output.contains("l r") && output.contains("d0 Temperature"),
-        "expected device read: {output}"
+        output
+            .lines()
+            .any(|l| l.starts_with("l r") && l.contains("d0 Temperature")),
+        "expected a line with 'l r… d0 Temperature': {output}"
     );
     assert!(
-        output.contains("s d1 On"),
-        "expected device write: {output}"
+        output.lines().any(|l| l.starts_with("s d1 On")),
+        "expected a line starting with 's d1 On': {output}"
     );
-    assert!(output.contains("yield"), "expected yield: {output}");
+    assert!(
+        output.lines().any(|l| l == "yield"),
+        "expected a yield line: {output}"
+    );
 }
 
 #[test]
 fn thermostat_compiles() {
     let output = compile_file("tests/examples/thermostat.ic20");
-    assert!(output.contains("yield"), "expected yield in loop: {output}");
+    assert!(
+        output.lines().any(|l| l == "yield"),
+        "expected a yield line: {output}"
+    );
 }
 
 #[test]
@@ -174,13 +186,13 @@ fn const_folding() {
         compile("device out: d0;\nconst X: i53 = 3 * 4 + 5;\nfn main() { out.Setting = X; }")
             .unwrap();
     assert!(
-        output.contains("17"),
-        "expected folded constant 17: {output}"
+        output.lines().any(|l| l.starts_with("s d0 Setting 17")),
+        "expected 's d0 Setting 17' (folded constant): {output}"
     );
 }
 
 #[test]
-fn function_call() {
+fn function_inlining_and_folding() {
     let output = compile(
         r#"
         device out: d0;
@@ -190,12 +202,8 @@ fn function_call() {
     )
     .unwrap();
     assert!(
-        output.contains("42"),
-        "expected inlined+folded constant 42: {output}"
-    );
-    assert!(
-        output.contains("s d0 Setting"),
-        "expected device write: {output}"
+        output.lines().any(|l| l.starts_with("s d0 Setting 42")),
+        "expected 's d0 Setting 42' (inlined + folded): {output}"
     );
 }
 
@@ -211,26 +219,38 @@ fn output_within_128_lines() {
 
 #[test]
 fn parse_error_is_reported() {
-    let result = compile("fn main( {}");
-    assert!(result.is_err(), "expected parse error");
+    let error = compile("fn main( {}").unwrap_err();
+    assert!(
+        error.starts_with("parse errors:"),
+        "expected parse error, got: {error}"
+    );
 }
 
 #[test]
 fn type_error_is_reported() {
-    let result = compile("fn main() { let x: i53 = true + 1; }");
-    assert!(result.is_err(), "expected type error");
+    let error = compile("fn main() { let x: i53 = true + 1; }").unwrap_err();
+    assert!(
+        error.starts_with("bind errors:"),
+        "expected type/bind error, got: {error}"
+    );
 }
 
 #[test]
 fn undeclared_variable_is_reported() {
-    let result = compile("fn main() { let x: i53 = y; }");
-    assert!(result.is_err(), "expected undeclared variable error");
+    let error = compile("fn main() { let x: i53 = y; }").unwrap_err();
+    assert!(
+        error.starts_with("bind errors:"),
+        "expected bind error for undeclared variable, got: {error}"
+    );
 }
 
 #[test]
 fn missing_main_is_reported() {
-    let result = compile("fn foo() {}");
-    assert!(result.is_err(), "expected missing main error");
+    let error = compile("fn foo() {}").unwrap_err();
+    assert!(
+        error.starts_with("bind errors:") && error.contains("main"),
+        "expected bind error about missing main, got: {error}"
+    );
 }
 
 #[test]
@@ -485,8 +505,8 @@ fn is_nan_compiles_to_snan() {
     )
     .unwrap();
     assert!(
-        output.contains("snan"),
-        "expected snan instruction: {output}"
+        output.lines().any(|l| l.starts_with("snan ")),
+        "expected a line starting with 'snan ': {output}"
     );
 }
 
