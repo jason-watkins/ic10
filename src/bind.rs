@@ -1694,8 +1694,7 @@ mod tests {
         };
         assert_eq!(program.symbols.get(inner.symbol_id).ty, Type::F64);
         assert_ne!(
-            outer.symbol_id,
-            inner.symbol_id,
+            outer.symbol_id, inner.symbol_id,
             "shadowed variable must get a distinct symbol ID"
         );
     }
@@ -1791,5 +1790,528 @@ mod tests {
             errors[0].message,
             "`select` branches have different types: `I53` vs `F64`"
         );
+    }
+
+    // const eval_const — bool literal
+    #[test]
+    fn const_bool_literal_evaluates() {
+        let program = bind_ok("const ENABLED: bool = true; fn main() {}");
+        assert!(program.symbols.symbols.iter().all(|s| s.name != "ENABLED"));
+    }
+
+    // const eval_const — hash expression
+    #[test]
+    fn const_hash_expression_evaluates() {
+        let program = bind_ok(r#"const H: f64 = hash("StructureGasSensor"); fn main() {}"#);
+        // Hash constants are folded away; they should not appear as symbols.
+        assert!(program.symbols.symbols.iter().all(|s| s.name != "H"));
+    }
+
+    // const eval_const — reference to another const
+    #[test]
+    fn const_references_another_const() {
+        let program = bind_ok("const A: i53 = 5; const B: i53 = A; fn main() { let x = B; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        let ExpressionKind::Literal(v) = s.init.kind else {
+            panic!("expected literal from const folding");
+        };
+        assert_eq!(v, 5.0);
+    }
+
+    // const eval_const — non-const variable in const context
+    #[test]
+    fn const_with_non_const_variable_is_error() {
+        assert!(has_error(
+            "const C: i53 = undeclared; fn main() {}",
+            "cannot use `undeclared` in a constant expression"
+        ));
+    }
+
+    // const eval_const — unary negation
+    #[test]
+    fn const_unary_neg_evaluates() {
+        let program = bind_ok("const N: i53 = -5; fn main() { let x = N; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        let ExpressionKind::Literal(v) = s.init.kind else {
+            panic!("expected literal");
+        };
+        assert_eq!(v, -5.0);
+    }
+
+    // const eval_const — unary logical not on bool
+    #[test]
+    fn const_unary_not_bool_evaluates() {
+        let program = bind_ok("const B: bool = !false; fn main() { let x = B; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        let ExpressionKind::Literal(v) = s.init.kind else {
+            panic!("expected literal");
+        };
+        assert_eq!(v, 1.0);
+    }
+
+    // const eval_const — unary logical not on non-bool is an error
+    #[test]
+    fn const_unary_not_on_non_bool_is_error() {
+        assert!(has_error(
+            "const C: bool = !5; fn main() {}",
+            "logical `!` requires a bool operand"
+        ));
+    }
+
+    // const eval_const — unary bitwise not on i53
+    #[test]
+    fn const_unary_bitnot_i53_evaluates() {
+        let program = bind_ok("const N: i53 = ~0; fn main() { let x = N; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        let ExpressionKind::Literal(v) = s.init.kind else {
+            panic!("expected literal");
+        };
+        assert_eq!(v, (!0i64) as f64);
+    }
+
+    // const eval_const — unary bitwise not on non-i53 is an error
+    #[test]
+    fn const_unary_bitnot_on_non_i53_is_error() {
+        assert!(has_error(
+            "const C: bool = ~true; fn main() {}",
+            "bitwise `~` requires an i53 operand"
+        ));
+    }
+
+    // const eval_const — binary expression
+    #[test]
+    fn const_binary_expression_evaluates() {
+        let program = bind_ok("const C: i53 = 3 + 4; fn main() { let x = C; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        let ExpressionKind::Literal(v) = s.init.kind else {
+            panic!("expected literal");
+        };
+        assert_eq!(v, 7.0);
+    }
+
+    // const eval_const — binary type mismatch is an error
+    #[test]
+    fn const_binary_type_mismatch_is_error() {
+        assert!(has_error(
+            "const C: f64 = 1 + 1.0; fn main() {}",
+            "type mismatch in constant expression"
+        ));
+    }
+
+    // const eval_const — logical || on non-bool is an error
+    #[test]
+    fn const_logical_or_on_non_bool_is_error() {
+        assert!(has_error(
+            "const C: bool = 1 || 2; fn main() {}",
+            "logical `||` requires bool operands"
+        ));
+    }
+
+    // const eval_const — logical && on non-bool is an error
+    #[test]
+    fn const_logical_and_on_non_bool_is_error() {
+        assert!(has_error(
+            "const C: bool = 1 && 2; fn main() {}",
+            "logical `&&` requires bool operands"
+        ));
+    }
+
+    // const eval_const — cast I53 -> F64
+    #[test]
+    fn const_cast_i53_to_f64_evaluates() {
+        let program = bind_ok("const C: f64 = 5 as f64; fn main() { let x = C; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        let ExpressionKind::Literal(v) = s.init.kind else {
+            panic!("expected literal");
+        };
+        assert_eq!(v, 5.0);
+        assert_eq!(s.init.ty, Type::F64);
+    }
+
+    // const eval_const — cast F64 -> I53 (truncation)
+    #[test]
+    fn const_cast_f64_to_i53_truncates() {
+        let program = bind_ok("const C: i53 = 3.9 as i53; fn main() { let x = C; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        let ExpressionKind::Literal(v) = s.init.kind else {
+            panic!("expected literal");
+        };
+        assert_eq!(v, 3.0);
+        assert_eq!(s.init.ty, Type::I53);
+    }
+
+    // const eval_const — cast Bool -> I53
+    #[test]
+    fn const_cast_bool_to_i53_evaluates() {
+        let program = bind_ok("const C: i53 = true as i53; fn main() { let x = C; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        let ExpressionKind::Literal(v) = s.init.kind else {
+            panic!("expected literal");
+        };
+        assert_eq!(v, 1.0);
+        assert_eq!(s.init.ty, Type::I53);
+    }
+
+    // const eval_const — cast Bool -> F64
+    #[test]
+    fn const_cast_bool_to_f64_evaluates() {
+        let program = bind_ok("const C: f64 = false as f64; fn main() { let x = C; }");
+        let Statement::Let(s) = &program.functions[0].body.statements[0] else {
+            panic!("expected let");
+        };
+        let ExpressionKind::Literal(v) = s.init.kind else {
+            panic!("expected literal");
+        };
+        assert_eq!(v, 0.0);
+        assert_eq!(s.init.ty, Type::F64);
+    }
+
+    // const eval_const — cast to Bool is an error
+    #[test]
+    fn const_cast_to_bool_is_error() {
+        assert!(has_error(
+            "const C: bool = 1 as bool; fn main() {}",
+            "cannot cast to `bool`"
+        ));
+    }
+
+    // const eval_const — identity cast emits a warning
+    #[test]
+    fn const_identity_cast_emits_warning() {
+        use crate::diagnostic::Severity;
+        let (ast, _) = parse("const C: i53 = 5 as i53; fn main() {}");
+        let (_program, warnings) =
+            bind(&ast).unwrap_or_else(|diags| panic!("bind errors: {diags:#?}"));
+        assert!(
+            warnings
+                .iter()
+                .any(|d| d.severity == Severity::Warning && d.message.contains("identity cast")),
+            "expected identity cast warning, got: {warnings:#?}",
+        );
+    }
+
+    // const eval_const — unsupported expression (intrinsic call) in constant context
+    #[test]
+    fn const_unsupported_expression_is_error() {
+        assert!(has_error(
+            "const C: f64 = abs(1.0); fn main() {}",
+            "unsupported expression in constant context"
+        ));
+    }
+
+    // pre_pass — const declared type does not match value type
+    #[test]
+    fn const_declared_type_mismatch_is_error() {
+        assert!(has_error(
+            "const C: i53 = 1.5; fn main() {}",
+            "declared as `I53` but value has type `F64`"
+        ));
+    }
+
+    // for loop — lower bound must be i53
+    #[test]
+    fn for_loop_lower_bound_not_i53_is_error() {
+        assert!(has_error(
+            "fn main() { for i in 1.0..10 {} }",
+            "lower bound must be `i53`"
+        ));
+    }
+
+    // for loop — upper bound must be i53
+    #[test]
+    fn for_loop_upper_bound_not_i53_is_error() {
+        assert!(has_error(
+            "fn main() { for i in 0..10.0 {} }",
+            "upper bound must be `i53`"
+        ));
+    }
+
+    // for loop — step must be i53
+    #[test]
+    fn for_loop_step_not_i53_is_error() {
+        assert!(has_error(
+            "fn main() { for i in (0..10).step_by(1.0) {} }",
+            "step must be `i53`"
+        ));
+    }
+
+    // yield statement binds without error
+    #[test]
+    fn yield_statement_is_valid() {
+        bind_ok("fn main() { yield; }");
+    }
+
+    // sleep — duration must be f64
+    #[test]
+    fn sleep_with_non_f64_duration_is_error() {
+        assert!(has_error(
+            "fn main() { sleep(1); }",
+            "`sleep` duration must be `f64`"
+        ));
+    }
+
+    // batch_write — hash must be f64
+    #[test]
+    fn batch_write_with_non_f64_hash_is_error() {
+        assert!(has_error(
+            r#"fn main() { batch_write(1, On, 1.0); }"#,
+            "batch_write hash must be `f64`"
+        ));
+    }
+
+    // assignment target — cannot assign to a constant
+    #[test]
+    fn assign_to_constant_is_error() {
+        assert!(has_error(
+            "const X: i53 = 5; fn main() { X = 10; }",
+            "cannot assign to constant `X`"
+        ));
+    }
+
+    // assignment target — cannot assign to a device directly
+    #[test]
+    fn assign_to_device_directly_is_error() {
+        assert!(has_error(
+            "device d: d0; fn main() { d = 1.0; }",
+            "is a device; use `d.Field = ...` to write"
+        ));
+    }
+
+    // assignment target — undeclared name in assignment
+    #[test]
+    fn assign_to_undeclared_name_is_error() {
+        assert!(has_error("fn main() { z = 1; }", "undeclared name `z`"));
+    }
+
+    // assignment target — device field on non-device
+    #[test]
+    fn assign_to_device_field_on_non_device_is_error() {
+        assert!(has_error(
+            "fn main() { let x = 1.0; x.Setting = 1.0; }",
+            "`x` is not a device"
+        ));
+    }
+
+    // assignment target — slot field write on non-device
+    #[test]
+    fn slot_field_write_on_non_device_is_error() {
+        assert!(has_error(
+            "fn main() { let x = 1.0; x.Occupancy(0).Setting = 1.0; }",
+            "`x` is not a device"
+        ));
+    }
+
+    // assignment target — slot index must be i53
+    #[test]
+    fn slot_field_write_slot_not_i53_is_error() {
+        assert!(has_error(
+            "device d: d0; fn main() { d.Occupancy(1.0).Setting = 1.0; }",
+            "slot index must be `i53`"
+        ));
+    }
+
+    // expression binding — device used as a plain variable read
+    #[test]
+    fn device_used_as_plain_variable_is_error() {
+        assert!(has_error(
+            "device sensor: d0; fn main() { let x = sensor; }",
+            "`sensor` is a device; use `sensor.Field` to read"
+        ));
+    }
+
+    // expression binding — device read on non-device
+    #[test]
+    fn device_field_read_on_non_device_is_error() {
+        assert!(has_error(
+            "fn main() { let x = 1.0; let y = x.Temperature; }",
+            "`x` is not a device"
+        ));
+    }
+
+    // expression binding — slot read on non-device
+    #[test]
+    fn slot_read_on_non_device_is_error() {
+        assert!(has_error(
+            "fn main() { let x = 1.0; let y = x.Occupancy(0).Temperature; }",
+            "`x` is not a device"
+        ));
+    }
+
+    // expression binding — slot read slot index not i53
+    #[test]
+    fn slot_read_slot_index_not_i53_is_error() {
+        assert!(has_error(
+            "device d: d0; fn main() { let y = d.Occupancy(1.0).Temperature; }",
+            "slot index must be `i53`"
+        ));
+    }
+
+    // expression binding — batch_read hash must be f64
+    #[test]
+    fn batch_read_hash_not_f64_is_error() {
+        assert!(has_error(
+            "fn main() { let y = batch_read(1, Temperature, Average); }",
+            "batch_read hash must be `f64`"
+        ));
+    }
+
+    // call — argument type mismatch
+    #[test]
+    fn call_argument_type_mismatch_is_error() {
+        assert!(has_error(
+            "fn add(x: i53, y: i53) -> i53 { return x + y; } fn main() { add(1, 2.0); }",
+            "argument 2 to `add` has type `F64`, expected `I53`"
+        ));
+    }
+
+    // intrinsic call — wrong argument count
+    #[test]
+    fn intrinsic_call_wrong_arg_count_is_error() {
+        assert!(has_error(
+            "fn main() { let x = abs(1.0, 2.0); }",
+            "`Abs` expects 1 argument(s), found 2"
+        ));
+    }
+
+    // intrinsic call — non-f64 argument
+    #[test]
+    fn intrinsic_call_non_f64_arg_is_error() {
+        assert!(has_error(
+            "fn main() { let x = pow(1, 2.0); }",
+            "intrinsic functions require `f64` arguments, found `I53`"
+        ));
+    }
+
+    // validate_main — duplicate main is an error
+    #[test]
+    fn duplicate_main_is_error() {
+        assert!(has_error(
+            "fn main() {} fn main() {}",
+            "duplicate definition of `main`"
+        ));
+    }
+
+    // validate_main — cast from void function result is an invalid cast
+    #[test]
+    fn cast_from_unit_to_numeric_is_error() {
+        assert!(has_error(
+            "fn noop() {} fn main() { let x = noop() as i53; }",
+            "invalid cast from `Unit`"
+        ));
+    }
+
+    // infer_binary_type — logical operator requires bool on left
+    #[test]
+    fn logical_or_lhs_not_bool_is_error() {
+        assert!(has_error(
+            "fn main() { let b: bool = true; let x = 1 || b; }",
+            "logical operator requires `bool` operands, found `I53` on left"
+        ));
+    }
+
+    // infer_binary_type — logical operator requires bool on right
+    #[test]
+    fn logical_or_rhs_not_bool_is_error() {
+        assert!(has_error(
+            "fn main() { let b: bool = true; let x = b || 1; }",
+            "logical operator requires `bool` operands, found `I53` on right"
+        ));
+    }
+
+    // infer_binary_type — comparison requires operands of the same type
+    #[test]
+    fn comparison_with_mismatched_types_is_error() {
+        assert!(has_error(
+            "fn main() { let x = 1 < 2.0; }",
+            "comparison requires operands of the same type"
+        ));
+    }
+
+    // infer_binary_type — bitwise operator left operand must be i53
+    #[test]
+    fn bitwise_op_lhs_not_i53_is_error() {
+        assert!(has_error(
+            "fn main() { let x = 1.0 << 2; }",
+            "bitwise/shift operator requires `i53` operands, found `F64` on left"
+        ));
+    }
+
+    // infer_binary_type — bitwise operator right operand must be i53
+    #[test]
+    fn bitwise_op_rhs_not_i53_is_error() {
+        assert!(has_error(
+            "fn main() { let x = 2 >> 1.0; }",
+            "bitwise/shift operator requires `i53` operands, found `F64` on right"
+        ));
+    }
+
+    // infer_binary_type — arithmetic on bool is an error
+    #[test]
+    fn arithmetic_on_bool_is_error() {
+        assert!(has_error(
+            "fn main() { let x = true + false; }",
+            "arithmetic operators cannot be applied to `bool`"
+        ));
+    }
+
+    // infer_unary_type — unary negation on bool is an error
+    #[test]
+    fn unary_neg_on_bool_is_error() {
+        assert!(has_error(
+            "fn main() { let b: bool = true; let x = -b; }",
+            "unary `-` cannot be applied to `bool`"
+        ));
+    }
+
+    // infer_unary_type — logical not on non-bool is an error
+    #[test]
+    fn logical_not_on_non_bool_is_error() {
+        assert!(has_error(
+            "fn main() { let x = 1; let y = !x; }",
+            "logical `!` requires `bool` operand, found `I53`"
+        ));
+    }
+
+    // infer_unary_type — bitwise not on non-i53 is an error
+    #[test]
+    fn bitwise_not_on_non_i53_is_error() {
+        assert!(has_error(
+            "fn main() { let b: bool = true; let y = ~b; }",
+            "bitwise `~` requires `i53` operand, found `Bool`"
+        ));
+    }
+
+    // division yields f64 regardless of operand types
+    #[test]
+    fn division_type_mismatch_is_error() {
+        assert!(has_error(
+            "fn main() { let x = 1 / 1.0; }",
+            "type mismatch in `/` operator: `I53` and `F64`"
+        ));
+    }
+
+    // Type coercion: missing return value from non-void function
+    #[test]
+    fn missing_return_value_is_error() {
+        assert!(has_error(
+            "fn f() -> i53 { return; } fn main() {}",
+            "missing return value: expected `I53`"
+        ));
     }
 }

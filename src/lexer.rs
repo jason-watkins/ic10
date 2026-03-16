@@ -1235,4 +1235,161 @@ fn main() {
         let k = kinds("/* /* */ 42");
         assert_eq!(k, vec![TokenKind::Literal(Literal::I53(42))]);
     }
+
+    #[test]
+    fn empty_label_produces_diagnostic() {
+        let (tokens, diagnostics) = tokenize("' ");
+        assert!(!diagnostics.is_empty(), "expected an error for empty label");
+        assert!(
+            diagnostics[0].message.contains("expected identifier after"),
+            "unexpected message: {}",
+            diagnostics[0].message
+        );
+        // Error recovery still emits a Label token with an empty name.
+        assert!(
+            tokens
+                .iter()
+                .any(|t| matches!(&t.kind, TokenKind::Label(n) if n.is_empty()))
+        );
+    }
+
+    #[test]
+    fn unterminated_block_comment_produces_diagnostic() {
+        let (tokens, diagnostics) = tokenize("/* no closing");
+        assert!(
+            !diagnostics.is_empty(),
+            "expected an error for unterminated block comment"
+        );
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("unterminated block comment"),
+            "unexpected message: {}",
+            diagnostics[0].message
+        );
+        // After the unterminated comment, only the Eof token remains.
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn hex_with_no_digits_produces_diagnostic() {
+        let (tokens, diagnostics) = tokenize("0x");
+        assert!(
+            !diagnostics.is_empty(),
+            "expected an error for empty hex literal"
+        );
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("expected hex digits after '0x'"),
+            "unexpected message: {}",
+            diagnostics[0].message
+        );
+        // Error recovery emits a zero literal.
+        assert!(matches!(
+            tokens[0].kind,
+            TokenKind::Literal(Literal::I53(0))
+        ));
+    }
+
+    #[test]
+    fn octal_with_no_digits_produces_diagnostic() {
+        let (tokens, diagnostics) = tokenize("0o");
+        assert!(
+            !diagnostics.is_empty(),
+            "expected an error for empty octal literal"
+        );
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("expected octal digits after '0o'"),
+            "unexpected message: {}",
+            diagnostics[0].message
+        );
+        assert!(matches!(
+            tokens[0].kind,
+            TokenKind::Literal(Literal::I53(0))
+        ));
+    }
+
+    #[test]
+    fn binary_with_no_digits_produces_diagnostic() {
+        let (tokens, diagnostics) = tokenize("0b");
+        assert!(
+            !diagnostics.is_empty(),
+            "expected an error for empty binary literal"
+        );
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("expected binary digits after '0b'"),
+            "unexpected message: {}",
+            diagnostics[0].message
+        );
+        assert!(matches!(
+            tokens[0].kind,
+            TokenKind::Literal(Literal::I53(0))
+        ));
+    }
+
+    #[test]
+    fn dot_dot_eq_tokenizes_as_inclusive_range() {
+        assert_eq!(
+            kinds("..="),
+            vec![TokenKind::Punctuator(Punctuator::DotDotEq)],
+        );
+    }
+
+    #[test]
+    fn unterminated_string_produces_diagnostic() {
+        let (tokens, diagnostics) = tokenize("\"hello");
+        assert!(
+            !diagnostics.is_empty(),
+            "expected an error for unterminated string"
+        );
+        assert!(
+            diagnostics[0]
+                .message
+                .contains("unterminated string literal"),
+            "unexpected message: {}",
+            diagnostics[0].message
+        );
+        // Error recovery returns the partial content as a string token.
+        assert!(matches!(&tokens[0].kind, TokenKind::Literal(Literal::String(s)) if s == "hello"));
+    }
+
+    #[test]
+    fn integer_exceeding_i53_range_produces_diagnostic() {
+        // 2^53 + 1 = 9007199254740993 is one past the maximum i53 value.
+        let (tokens, diagnostics) = tokenize("9007199254740993");
+        assert!(
+            !diagnostics.is_empty(),
+            "expected an error for out-of-range integer"
+        );
+        assert!(
+            diagnostics[0].message.contains("out of i53 range"),
+            "unexpected message: {}",
+            diagnostics[0].message
+        );
+        // A token is still emitted with the parsed value for error recovery.
+        assert!(matches!(
+            tokens[0].kind,
+            TokenKind::Literal(Literal::I53(_))
+        ));
+    }
+
+    #[test]
+    fn unexpected_character_produces_diagnostic() {
+        let (_, diagnostics) = tokenize("@");
+        assert!(
+            !diagnostics.is_empty(),
+            "expected an error for unexpected character"
+        );
+        assert!(
+            diagnostics[0].message.contains("unexpected character '@'"),
+            "unexpected message: {}",
+            diagnostics[0].message
+        );
+    }
 }

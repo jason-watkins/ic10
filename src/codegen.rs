@@ -480,7 +480,10 @@ mod tests {
     }
 
     fn compile_no_inline_lines(source: &str) -> Vec<String> {
-        compile_no_inline(source).lines().map(String::from).collect()
+        compile_no_inline(source)
+            .lines()
+            .map(String::from)
+            .collect()
     }
 
     #[test]
@@ -898,7 +901,10 @@ mod tests {
     #[test]
     fn format_float_subnormal() {
         let subnormal = f64::MIN_POSITIVE / 2.0;
-        assert!(subnormal.is_subnormal(), "precondition: value must be subnormal");
+        assert!(
+            subnormal.is_subnormal(),
+            "precondition: value must be subnormal"
+        );
         assert_eq!(format_float(subnormal), "1.1125369292536007e-308");
     }
 
@@ -953,6 +959,706 @@ mod tests {
         assert!(
             lines.iter().any(|line| line.starts_with("lb ")),
             "expected 'lb' for batch read: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn display_registers_r6_through_r14() {
+        assert_eq!(Register::R6.to_string(), "r6");
+        assert_eq!(Register::R7.to_string(), "r7");
+        assert_eq!(Register::R8.to_string(), "r8");
+        assert_eq!(Register::R9.to_string(), "r9");
+        assert_eq!(Register::R10.to_string(), "r10");
+        assert_eq!(Register::R11.to_string(), "r11");
+        assert_eq!(Register::R12.to_string(), "r12");
+        assert_eq!(Register::R13.to_string(), "r13");
+        assert_eq!(Register::R14.to_string(), "r14");
+    }
+
+    #[test]
+    fn display_device_pins_d2_through_d4() {
+        assert_eq!(DevicePin::D2.to_string(), "d2");
+        assert_eq!(DevicePin::D3.to_string(), "d3");
+        assert_eq!(DevicePin::D4.to_string(), "d4");
+    }
+
+    #[test]
+    fn generate_with_keep_labels_emits_label_lines() {
+        use crate::regalloc::IC10Function;
+        let program = IC10Program {
+            functions: vec![IC10Function {
+                name: "main".to_string(),
+                instructions: vec![
+                    IC10Instruction::Label("mainEntry".to_string()),
+                    IC10Instruction::HaltAndCatchFire,
+                ],
+                is_entry: true,
+            }],
+        };
+        let (text, diagnostics) = generate(&program, true);
+        assert!(diagnostics.is_empty());
+        assert!(
+            text.contains("mainEntry:"),
+            "expected label line in output: {text}"
+        );
+        assert!(text.contains("hcf"));
+    }
+
+    #[test]
+    fn instruction_display_arithmetic_extended() {
+        let d = Register::R0;
+        let a = Operand::Register(Register::R1);
+        let b = Operand::Literal(2.0);
+
+        assert_eq!(
+            IC10Instruction::Pow(d, a.clone(), b.clone()).to_string(),
+            "pow r0 r1 2"
+        );
+        assert_eq!(IC10Instruction::Exp(d, a.clone()).to_string(), "exp r0 r1");
+        assert_eq!(IC10Instruction::Log(d, a.clone()).to_string(), "log r0 r1");
+        assert_eq!(
+            IC10Instruction::Max(d, a.clone(), b.clone()).to_string(),
+            "max r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Min(d, a.clone(), b.clone()).to_string(),
+            "min r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Ceil(d, a.clone()).to_string(),
+            "ceil r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Floor(d, a.clone()).to_string(),
+            "floor r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Round(d, a.clone()).to_string(),
+            "round r0 r1"
+        );
+        assert_eq!(IC10Instruction::Rand(d).to_string(), "rand r0");
+        assert_eq!(
+            IC10Instruction::Lerp(d, a.clone(), b.clone(), Operand::Literal(0.5)).to_string(),
+            "lerp r0 r1 2 0.5"
+        );
+    }
+
+    #[test]
+    fn instruction_display_trig() {
+        let d = Register::R0;
+        let a = Operand::Register(Register::R1);
+        let b = Operand::Literal(2.0);
+
+        assert_eq!(IC10Instruction::Sin(d, a.clone()).to_string(), "sin r0 r1");
+        assert_eq!(IC10Instruction::Cos(d, a.clone()).to_string(), "cos r0 r1");
+        assert_eq!(IC10Instruction::Tan(d, a.clone()).to_string(), "tan r0 r1");
+        assert_eq!(
+            IC10Instruction::Asin(d, a.clone()).to_string(),
+            "asin r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Acos(d, a.clone()).to_string(),
+            "acos r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Atan(d, a.clone()).to_string(),
+            "atan r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Atan2(d, a.clone(), b.clone()).to_string(),
+            "atan2 r0 r1 2"
+        );
+    }
+
+    #[test]
+    fn instruction_display_bitwise() {
+        let d = Register::R0;
+        let a = Operand::Register(Register::R1);
+        let b = Operand::Literal(2.0);
+        let c = Operand::Literal(3.0);
+
+        assert_eq!(
+            IC10Instruction::And(d, a.clone(), b.clone()).to_string(),
+            "and r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Or(d, a.clone(), b.clone()).to_string(),
+            "or r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Xor(d, a.clone(), b.clone()).to_string(),
+            "xor r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Nor(d, a.clone(), b.clone()).to_string(),
+            "nor r0 r1 2"
+        );
+        assert_eq!(IC10Instruction::Not(d, a.clone()).to_string(), "not r0 r1");
+        assert_eq!(
+            IC10Instruction::Sll(d, a.clone(), b.clone()).to_string(),
+            "sll r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Sla(d, a.clone(), b.clone()).to_string(),
+            "sla r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Srl(d, a.clone(), b.clone()).to_string(),
+            "srl r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Sra(d, a.clone(), b.clone()).to_string(),
+            "sra r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Ext {
+                dest: d,
+                source: a.clone(),
+                bit_offset: b.clone(),
+                bit_length: c.clone()
+            }
+            .to_string(),
+            "ext r0 r1 2 3"
+        );
+        // Note: `ins` uses stable IC10 parameter order: offset, length, field (not field, offset, length).
+        assert_eq!(
+            IC10Instruction::Ins {
+                dest: d,
+                field: a.clone(),
+                bit_offset: b.clone(),
+                bit_length: c.clone()
+            }
+            .to_string(),
+            "ins r0 2 3 r1"
+        );
+    }
+
+    #[test]
+    fn instruction_display_set_compare() {
+        let d = Register::R0;
+        let a = Operand::Register(Register::R1);
+        let b = Operand::Literal(2.0);
+        let eps = Operand::Literal(0.001);
+
+        assert_eq!(
+            IC10Instruction::Seq(d, a.clone(), b.clone()).to_string(),
+            "seq r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Seqz(d, a.clone()).to_string(),
+            "seqz r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Sne(d, a.clone(), b.clone()).to_string(),
+            "sne r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Snez(d, a.clone()).to_string(),
+            "snez r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Sgt(d, a.clone(), b.clone()).to_string(),
+            "sgt r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Sgtz(d, a.clone()).to_string(),
+            "sgtz r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Sge(d, a.clone(), b.clone()).to_string(),
+            "sge r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Sgez(d, a.clone()).to_string(),
+            "sgez r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Slt(d, a.clone(), b.clone()).to_string(),
+            "slt r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Sltz(d, a.clone()).to_string(),
+            "sltz r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Sle(d, a.clone(), b.clone()).to_string(),
+            "sle r0 r1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Slez(d, a.clone()).to_string(),
+            "slez r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Sap(d, a.clone(), b.clone(), eps.clone()).to_string(),
+            "sap r0 r1 2 0.001"
+        );
+        assert_eq!(
+            IC10Instruction::Sapz(d, a.clone(), eps.clone()).to_string(),
+            "sapz r0 r1 0.001"
+        );
+        assert_eq!(
+            IC10Instruction::Sna(d, a.clone(), b.clone(), eps.clone()).to_string(),
+            "sna r0 r1 2 0.001"
+        );
+        assert_eq!(
+            IC10Instruction::Snaz(d, a.clone(), eps.clone()).to_string(),
+            "snaz r0 r1 0.001"
+        );
+        assert_eq!(
+            IC10Instruction::Snan(d, a.clone()).to_string(),
+            "snan r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Snanz(d, a.clone()).to_string(),
+            "snanz r0 r1"
+        );
+        assert_eq!(
+            IC10Instruction::Sdse(d, DevicePin::D1).to_string(),
+            "sdse r0 d1"
+        );
+        assert_eq!(
+            IC10Instruction::Sdns(d, DevicePin::D2).to_string(),
+            "sdns r0 d2"
+        );
+        assert_eq!(
+            IC10Instruction::Select(d, a.clone(), b.clone(), eps.clone()).to_string(),
+            "select r0 r1 2 0.001"
+        );
+    }
+
+    #[test]
+    fn instruction_display_branches() {
+        let a = Operand::Register(Register::R0);
+        let b = Operand::Literal(0.0);
+        let t = JumpTarget::Line(10);
+        let eps = Operand::Literal(0.001);
+
+        assert_eq!(IC10Instruction::Jump(t.clone()).to_string(), "j 10");
+        assert_eq!(
+            IC10Instruction::JumpRelative(Operand::Literal(2.0)).to_string(),
+            "jr 2"
+        );
+        assert_eq!(
+            IC10Instruction::BranchEqual(a.clone(), b.clone(), t.clone()).to_string(),
+            "beq r0 0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchEqualZero(a.clone(), t.clone()).to_string(),
+            "beqz r0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotEqual(a.clone(), b.clone(), t.clone()).to_string(),
+            "bne r0 0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotEqualZero(a.clone(), t.clone()).to_string(),
+            "bnez r0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterThanZero(a.clone(), t.clone()).to_string(),
+            "bgtz r0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterEqual(a.clone(), b.clone(), t.clone()).to_string(),
+            "bge r0 0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterEqualZero(a.clone(), t.clone()).to_string(),
+            "bgez r0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessThan(a.clone(), b.clone(), t.clone()).to_string(),
+            "blt r0 0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessThanZero(a.clone(), t.clone()).to_string(),
+            "bltz r0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessEqual(a.clone(), b.clone(), t.clone()).to_string(),
+            "ble r0 0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessEqualZero(a.clone(), t.clone()).to_string(),
+            "blez r0 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchApproximateEqual {
+                left: a.clone(),
+                right: b.clone(),
+                epsilon: eps.clone(),
+                target: t.clone()
+            }
+            .to_string(),
+            "bap r0 0 0.001 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchApproximateZero {
+                value: a.clone(),
+                epsilon: eps.clone(),
+                target: t.clone()
+            }
+            .to_string(),
+            "bapz r0 0.001 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotApproximateEqual {
+                left: a.clone(),
+                right: b.clone(),
+                epsilon: eps.clone(),
+                target: t.clone()
+            }
+            .to_string(),
+            "bna r0 0 0.001 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotApproximateZero {
+                value: a.clone(),
+                epsilon: eps.clone(),
+                target: t.clone()
+            }
+            .to_string(),
+            "bnaz r0 0.001 10"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNaN(a.clone(), t.clone()).to_string(),
+            "bnan r0 10"
+        );
+    }
+
+    #[test]
+    fn instruction_display_branch_and_link() {
+        let a = Operand::Register(Register::R0);
+        let b = Operand::Literal(0.0);
+        let t = JumpTarget::Line(5);
+        let eps = Operand::Literal(0.001);
+
+        assert_eq!(
+            IC10Instruction::BranchEqualAndLink(a.clone(), b.clone(), t.clone()).to_string(),
+            "beqal r0 0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchEqualZeroAndLink(a.clone(), t.clone()).to_string(),
+            "beqzal r0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotEqualAndLink(a.clone(), b.clone(), t.clone()).to_string(),
+            "bneal r0 0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotEqualZeroAndLink(a.clone(), t.clone()).to_string(),
+            "bnezal r0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterThanAndLink(a.clone(), b.clone(), t.clone()).to_string(),
+            "bgtal r0 0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterThanZeroAndLink(a.clone(), t.clone()).to_string(),
+            "bgtzal r0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterEqualAndLink(a.clone(), b.clone(), t.clone()).to_string(),
+            "bgeal r0 0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterEqualZeroAndLink(a.clone(), t.clone()).to_string(),
+            "bgezal r0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessThanAndLink(a.clone(), b.clone(), t.clone()).to_string(),
+            "bltal r0 0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessThanZeroAndLink(a.clone(), t.clone()).to_string(),
+            "bltzal r0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessEqualAndLink(a.clone(), b.clone(), t.clone()).to_string(),
+            "bleal r0 0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessEqualZeroAndLink(a.clone(), t.clone()).to_string(),
+            "blezal r0 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchApproximateEqualAndLink(
+                a.clone(),
+                b.clone(),
+                eps.clone(),
+                t.clone()
+            )
+            .to_string(),
+            "bapal r0 0 0.001 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchApproximateZeroAndLink(a.clone(), eps.clone(), t.clone())
+                .to_string(),
+            "bapzal r0 0.001 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotApproximateEqualAndLink(
+                a.clone(),
+                b.clone(),
+                eps.clone(),
+                t.clone()
+            )
+            .to_string(),
+            "bnaal r0 0 0.001 5"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotApproximateZeroAndLink(a.clone(), eps.clone(), t.clone())
+                .to_string(),
+            "bnazal r0 0.001 5"
+        );
+    }
+
+    #[test]
+    fn instruction_display_branch_relative() {
+        let a = Operand::Register(Register::R0);
+        let b = Operand::Literal(0.0);
+        let off = Operand::Literal(3.0);
+        let eps = Operand::Literal(0.001);
+
+        assert_eq!(
+            IC10Instruction::BranchEqualRelative(a.clone(), b.clone(), off.clone()).to_string(),
+            "breq r0 0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchEqualZeroRelative(a.clone(), off.clone()).to_string(),
+            "breqz r0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotEqualRelative(a.clone(), b.clone(), off.clone()).to_string(),
+            "brne r0 0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotEqualZeroRelative(a.clone(), off.clone()).to_string(),
+            "brnez r0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterThanRelative(a.clone(), b.clone(), off.clone())
+                .to_string(),
+            "brgt r0 0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterThanZeroRelative(a.clone(), off.clone()).to_string(),
+            "brgtz r0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterEqualRelative(a.clone(), b.clone(), off.clone())
+                .to_string(),
+            "brge r0 0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchGreaterEqualZeroRelative(a.clone(), off.clone()).to_string(),
+            "brgez r0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessThanRelative(a.clone(), b.clone(), off.clone()).to_string(),
+            "brlt r0 0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessThanZeroRelative(a.clone(), off.clone()).to_string(),
+            "brltz r0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessEqualRelative(a.clone(), b.clone(), off.clone()).to_string(),
+            "brle r0 0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchLessEqualZeroRelative(a.clone(), off.clone()).to_string(),
+            "brlez r0 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchApproximateEqualRelative(
+                a.clone(),
+                b.clone(),
+                eps.clone(),
+                off.clone()
+            )
+            .to_string(),
+            "brap r0 0 0.001 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchApproximateZeroRelative(a.clone(), eps.clone(), off.clone())
+                .to_string(),
+            "brapz r0 0.001 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotApproximateEqualRelative(
+                a.clone(),
+                b.clone(),
+                eps.clone(),
+                off.clone()
+            )
+            .to_string(),
+            "brna r0 0 0.001 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNotApproximateZeroRelative(a.clone(), eps.clone(), off.clone())
+                .to_string(),
+            "brnaz r0 0.001 3"
+        );
+        assert_eq!(
+            IC10Instruction::BranchNaNRelative(a.clone(), off.clone()).to_string(),
+            "brnan r0 3"
+        );
+    }
+
+    #[test]
+    fn instruction_display_device_branches() {
+        let t = JumpTarget::Line(7);
+
+        assert_eq!(
+            IC10Instruction::BranchDeviceSet(DevicePin::D0, t.clone()).to_string(),
+            "bdse d0 7"
+        );
+        assert_eq!(
+            IC10Instruction::BranchDeviceNotSet(DevicePin::D1, t.clone()).to_string(),
+            "bdns d1 7"
+        );
+        assert_eq!(
+            IC10Instruction::BranchDeviceSetAndLink(DevicePin::D0, t.clone()).to_string(),
+            "bdseal d0 7"
+        );
+        assert_eq!(
+            IC10Instruction::BranchDeviceNotSetAndLink(DevicePin::D1, t.clone()).to_string(),
+            "bdnsal d1 7"
+        );
+        assert_eq!(
+            IC10Instruction::BranchDeviceSetRelative(DevicePin::D0, Operand::Literal(2.0))
+                .to_string(),
+            "brdse d0 2"
+        );
+        assert_eq!(
+            IC10Instruction::BranchDeviceNotSetRelative(DevicePin::D1, Operand::Literal(2.0))
+                .to_string(),
+            "brdns d1 2"
+        );
+        assert_eq!(
+            IC10Instruction::BranchDeviceNotValidLoad(
+                DevicePin::D0,
+                "Temperature".to_string(),
+                t.clone()
+            )
+            .to_string(),
+            "bdnvl d0 Temperature 7"
+        );
+        assert_eq!(
+            IC10Instruction::BranchDeviceNotValidStore(
+                DevicePin::D0,
+                "Setting".to_string(),
+                t.clone()
+            )
+            .to_string(),
+            "bdnvs d0 Setting 7"
+        );
+    }
+
+    #[test]
+    fn instruction_display_advanced_device_io() {
+        let d = Register::R0;
+        let a = Operand::Literal(1.0);
+        let b = Operand::Literal(2.0);
+        let c = Operand::Literal(3.0);
+
+        assert_eq!(
+            IC10Instruction::Poke(a.clone(), b.clone()).to_string(),
+            "poke 1 2"
+        );
+        assert_eq!(
+            IC10Instruction::ClearStack(DevicePin::D0).to_string(),
+            "clr d0"
+        );
+        assert_eq!(
+            IC10Instruction::ClearStackById(a.clone()).to_string(),
+            "clrd 1"
+        );
+        assert_eq!(
+            IC10Instruction::Get(d, DevicePin::D0, a.clone()).to_string(),
+            "get r0 d0 1"
+        );
+        assert_eq!(
+            IC10Instruction::GetById(d, a.clone(), b.clone()).to_string(),
+            "getd r0 1 2"
+        );
+        assert_eq!(
+            IC10Instruction::Put(DevicePin::D0, a.clone(), b.clone()).to_string(),
+            "put d0 1 2"
+        );
+        assert_eq!(
+            IC10Instruction::PutById(a.clone(), b.clone(), c.clone()).to_string(),
+            "putd 1 2 3"
+        );
+        assert_eq!(
+            IC10Instruction::StoreSlot(DevicePin::D0, a.clone(), "Volume".to_string(), b.clone())
+                .to_string(),
+            "ss d0 1 Volume 2"
+        );
+        assert_eq!(
+            IC10Instruction::LoadReagent(d, DevicePin::D0, a.clone(), b.clone()).to_string(),
+            "lr r0 d0 1 2"
+        );
+        assert_eq!(
+            IC10Instruction::ReagentMap(d, DevicePin::D0, a.clone()).to_string(),
+            "rmap r0 d0 1"
+        );
+        assert_eq!(
+            IC10Instruction::LoadById(d, a.clone(), "Temperature".to_string()).to_string(),
+            "ld r0 1 Temperature"
+        );
+        assert_eq!(
+            IC10Instruction::StoreById {
+                reference_id: a.clone(),
+                logic_type: "On".to_string(),
+                source: b.clone()
+            }
+            .to_string(),
+            "sd 1 On 2"
+        );
+        assert_eq!(
+            IC10Instruction::BatchStoreByName {
+                device_hash: a.clone(),
+                name_hash: b.clone(),
+                logic_type: "On".to_string(),
+                source: c.clone()
+            }
+            .to_string(),
+            "sbn 1 2 On 3"
+        );
+        assert_eq!(
+            IC10Instruction::BatchLoadSlot {
+                dest: d,
+                device_hash: a.clone(),
+                slot: b.clone(),
+                slot_logic_type: "Quantity".to_string(),
+                batch_mode: BatchMode::Sum
+            }
+            .to_string(),
+            "lbs r0 1 2 Quantity 1"
+        );
+        assert_eq!(
+            IC10Instruction::BatchStoreSlot {
+                device_hash: a.clone(),
+                slot: b.clone(),
+                slot_logic_type: "Volume".to_string(),
+                source: c.clone()
+            }
+            .to_string(),
+            "sbs 1 2 Volume 3"
+        );
+        assert_eq!(
+            IC10Instruction::BatchLoadSlotByName {
+                dest: d,
+                device_hash: a.clone(),
+                name_hash: b.clone(),
+                slot: c.clone(),
+                slot_logic_type: "Mass".to_string(),
+                batch_mode: BatchMode::Maximum
+            }
+            .to_string(),
+            "lbns r0 1 2 3 Mass 3"
         );
     }
 }

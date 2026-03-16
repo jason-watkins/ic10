@@ -2740,4 +2740,92 @@ mod tests {
             panic!("expected for statement");
         }
     }
+
+    #[test]
+    fn all_intrinsics_are_parsed() {
+        let cases: &[(&str, Intrinsic)] = &[
+            ("fn f() { abs(1.0); }", Intrinsic::Abs),
+            ("fn f() { ceil(1.0); }", Intrinsic::Ceil),
+            ("fn f() { floor(1.0); }", Intrinsic::Floor),
+            ("fn f() { round(1.0); }", Intrinsic::Round),
+            ("fn f() { trunc(1.0); }", Intrinsic::Trunc),
+            ("fn f() { sqrt(1.0); }", Intrinsic::Sqrt),
+            ("fn f() { exp(1.0); }", Intrinsic::Exp),
+            ("fn f() { log(1.0); }", Intrinsic::Log),
+            ("fn f() { sin(1.0); }", Intrinsic::Sin),
+            ("fn f() { cos(1.0); }", Intrinsic::Cos),
+            ("fn f() { tan(1.0); }", Intrinsic::Tan),
+            ("fn f() { asin(1.0); }", Intrinsic::Asin),
+            ("fn f() { acos(1.0); }", Intrinsic::Acos),
+            ("fn f() { atan(1.0); }", Intrinsic::Atan),
+            ("fn f() { atan2(1.0, 2.0); }", Intrinsic::Atan2),
+            ("fn f() { pow(2.0, 3.0); }", Intrinsic::Pow),
+            ("fn f() { min(1.0, 2.0); }", Intrinsic::Min),
+            ("fn f() { max(1.0, 2.0); }", Intrinsic::Max),
+            ("fn f() { lerp(0.0, 1.0, 0.5); }", Intrinsic::Lerp),
+            ("fn f() { clamp(0.5, 0.0, 1.0); }", Intrinsic::Clamp),
+            ("fn f() { rand(); }", Intrinsic::Rand),
+            ("fn f() { is_nan(1.0); }", Intrinsic::IsNan),
+        ];
+        for (source, expected) in cases {
+            let program = parse_ok(source);
+            let declaration = match program.items.into_iter().next().unwrap() {
+                Item::Fn(f) => f,
+                other => panic!("expected fn item: {:?}", other),
+            };
+            let stmt = declaration.body.stmts.into_iter().next().unwrap();
+            let actual = match stmt {
+                Statement::Expression(s) => match s.expr.kind {
+                    ExpressionKind::IntrinsicCall(intrinsic, _) => intrinsic,
+                    other => panic!("expected IntrinsicCall for {source}, got {other:?}"),
+                },
+                other => panic!("expected expression statement for {source}, got {other:?}"),
+            };
+            assert_eq!(actual, *expected, "wrong intrinsic for source: {source}");
+        }
+    }
+
+    #[test]
+    fn unknown_range_method_with_arguments_triggers_error_recovery() {
+        // The `.unknown(5)` method has an argument that the error-recovery path must
+        // skip over (exercising the token-consuming loop inside the `_` arm).
+        let errors = parse_errors("fn f() { for i in (0..10).unknown(5) {} }");
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("unknown range method")),
+            "expected unknown range method error: {errors:?}",
+        );
+    }
+
+    #[test]
+    fn unknown_batch_mode_produces_error() {
+        let errors = parse_errors("fn f() { let x = batch_read(1.0, Temperature, Median); }");
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("expected batch mode")),
+            "expected batch mode error: {errors:?}",
+        );
+    }
+
+    #[test]
+    fn float_literal_in_function_name_position_produces_error() {
+        // Exercises the `TokenKind::Literal(Literal::F64(_))` arm of `token_kind_name`.
+        let errors = parse_errors("fn 3.14() {}");
+        assert!(
+            errors.iter().any(|e| e.message.contains("float literal")),
+            "expected 'float literal' in error: {errors:?}",
+        );
+    }
+
+    #[test]
+    fn string_literal_in_function_name_position_produces_error() {
+        // Exercises the `TokenKind::Literal(Literal::String(_))` arm of `token_kind_name`.
+        let errors = parse_errors(r#"fn "hello"() {}"#);
+        assert!(
+            errors.iter().any(|e| e.message.contains("string literal")),
+            "expected 'string literal' in error: {errors:?}",
+        );
+    }
 }
