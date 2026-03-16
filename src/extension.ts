@@ -1,6 +1,15 @@
+import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
+import {
+    LanguageClient,
+    LanguageClientOptions,
+    ServerOptions,
+} from "vscode-languageclient/node";
 
-export function activate(context: vscode.ExtensionContext) {
+let client: LanguageClient | undefined;
+
+export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.languages.registerDocumentFormattingEditProvider("ic20", {
             provideDocumentFormattingEdits(document, options) {
@@ -8,9 +17,53 @@ export function activate(context: vscode.ExtensionContext) {
             },
         })
     );
+
+    const config = vscode.workspace.getConfiguration("ic20.lsp");
+    const configuredPath = config.get<string>("path", "");
+
+    let command: string;
+    if (configuredPath) {
+        command = configuredPath;
+    } else {
+        const ext = process.platform === "win32" ? ".exe" : "";
+        const bundledName = `ic20-lsp-${process.platform}-${process.arch}${ext}`;
+        const bundledPath = path.join(context.extensionPath, "bin", bundledName);
+        command = fs.existsSync(bundledPath) ? bundledPath : "ic20-lsp";
+    }
+
+    const serverOptions: ServerOptions = {
+        command,
+        args: [],
+    };
+
+    const clientOptions: LanguageClientOptions = {
+        documentSelector: [{ scheme: "file", language: "ic20" }],
+    };
+
+    client = new LanguageClient(
+        "ic20-lsp",
+        "IC20 Language Server",
+        serverOptions,
+        clientOptions
+    );
+
+    try {
+        await client.start();
+    } catch {
+        client = undefined;
+        vscode.window.showWarningMessage(
+            `Could not start IC20 language server ('${command}'). ` +
+            "Diagnostics, hover, and go-to-definition will be unavailable. " +
+            "Set ic20.lsp.path in settings or add ic20-lsp to your PATH."
+        );
+    }
 }
 
-export function deactivate() { }
+export async function deactivate() {
+    if (client) {
+        await client.stop();
+    }
+}
 
 function formatDocument(
     document: vscode.TextDocument,
