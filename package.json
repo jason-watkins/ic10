@@ -18,9 +18,7 @@
     ],
     "icon": "icons/icon.png",
     "main": "./out/extension.js",
-    "activationEvents": [
-        "onLanguage:ic20"
-    ],
+    "activationEvents": [],
     "contributes": {
         "configuration": {
             "title": "IC20",
