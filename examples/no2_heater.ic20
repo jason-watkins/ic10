@@ -1,0 +1,47 @@
+device heater: d0;
+device ice_crusher: d1;
+device no2_analyzer: d2;
+device crusher_analyzer: d3;
+
+static mut FILTER_COUNTDOWN: i53 = 0;
+
+fn kelvin(t: f64) -> f64 {
+    return t + 273.15;
+}
+
+fn main () {
+    no2_analyzer.On = true;
+    loop {
+        // Heater is attached to an insulated liquid pipe network that stores nitrous oxide. For
+        // some reason, the temperature of the network still fluctuates despite being insulated.
+        // To prevent freezing, we run a heater with some hysteresis to keep the no2 from freezing.
+        let temperature = no2_analyzer.Temperature;
+        if temperature < kelvin(0.0) {
+            heater.On = true;
+        }
+        else if temperature >= kelvin(20.0) {
+            heater.On = false;
+        }
+
+        // Meanwhile, since we're right next to the ice crusher anyway, hook up to its logic
+        // network and turn off the crusher once it's empty to save power.
+        let crusher_pressure = crusher_analyzer.Pressure;
+        if is_nan(crusher_pressure) || crusher_pressure < 0.1 {
+            ice_crusher.On = false;
+            FILTER_COUNTDOWN = 20;  // 10 seconds at 0.5 second intervals
+        }
+
+        // Count down 10 seconds after turning off the crusher before we turn off the filters, to
+        // give them time to clear out. 10 seconds is a count of 20, since the script is called
+        // at 0.5 second intervals. Doing this with a count avoids the need to sleep, keeping the
+        // heater responsive.
+        if FILTER_COUNTDOWN > 0 {
+            FILTER_COUNTDOWN = FILTER_COUNTDOWN - 1;
+            if FILTER_COUNTDOWN == 0 {
+                batch_write(hash("StructureFiltration"), On, false);
+            }
+        }
+
+        yield;
+    }
+}
