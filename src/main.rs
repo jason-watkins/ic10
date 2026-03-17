@@ -32,6 +32,8 @@ enum Feature {
     Inline,
     #[value(name = "branch-fusion")]
     BranchFusion,
+    #[value(name = "static-access")]
+    StaticAccess,
     #[value(name = "symbolic-labels")]
     SymbolicLabels,
 }
@@ -56,7 +58,7 @@ impl FromStr for FeatureToggle {
             format!(
                 "unknown feature '{}'; valid features are: \
                  constant-propagation, copy-propagation, global-value-numbering, \
-                 dead-code-elimination, block-simplification, block-deduplication, inline, symbolic-labels",
+                 dead-code-elimination, block-simplification, block-deduplication, static-access, inline, symbolic-labels",
                 name
             )
         })?;
@@ -73,6 +75,7 @@ fn apply_feature_toggles(features: &mut Features, toggles: &[FeatureToggle]) {
             Feature::DeadCodeElimination => features.dead_code_elimination = toggle.enable,
             Feature::BlockSimplification => features.block_simplification = toggle.enable,
             Feature::BlockDeduplication => features.block_deduplication = toggle.enable,
+            Feature::StaticAccess => features.static_access = toggle.enable,
             Feature::Inline => features.inline = toggle.enable,
             Feature::BranchFusion => features.branch_fusion = toggle.enable,
             Feature::SymbolicLabels => features.symbolic_labels = toggle.enable,

@@ -579,16 +579,12 @@ fn static_read() {
     )
     .unwrap();
     assert!(
-        output.contains("get"),
-        "expected get instruction for static read: {output}"
+        output.contains("poke 511 100"),
+        "expected poke initializer for static at address 511: {output}"
     );
     assert!(
-        output.contains("db"),
-        "expected db device reference for static read: {output}"
-    );
-    assert!(
-        output.contains("poke"),
-        "expected poke instruction for static initializer: {output}"
+        output.contains("s d0 Setting 100"),
+        "expected constant-folded device store with value 100: {output}"
     );
 }
 
@@ -605,14 +601,40 @@ fn static_mut_write_and_read() {
         "#,
     )
     .unwrap();
+    assert!(
+        output.contains("poke 511"),
+        "expected poke instruction for static store: {output}"
+    );
+    assert!(
+        output.contains("s d0 Setting"),
+        "expected device store for output: {output}"
+    );
+}
+
+#[test]
+fn static_mut_survives_across_yield() {
+    let output = compile(
+        r#"
+        device out: d0;
+        static mut counter: i53 = 0;
+        fn main() {
+            loop {
+                counter = counter + 1;
+                out.Setting = counter;
+                yield;
+            }
+        }
+        "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("get") && output.contains("db"),
+        "expected get db instruction for static read after yield: {output}"
+    );
     let poke_count = output.lines().filter(|l| l.starts_with("poke")).count();
     assert!(
         poke_count >= 2,
-        "expected at least 2 poke instructions (initializer + write): {output}"
-    );
-    assert!(
-        output.contains("get"),
-        "expected get instruction for static read: {output}"
+        "expected at least 2 poke instructions (initializer + loop write): {output}"
     );
 }
 

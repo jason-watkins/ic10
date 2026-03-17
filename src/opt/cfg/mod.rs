@@ -5,6 +5,7 @@ mod copy_propagation;
 mod dead_code_elimination;
 mod global_value_numbering;
 mod inline;
+mod static_access;
 mod utilities;
 
 use block_deduplication::deduplicate_blocks;
@@ -16,6 +17,7 @@ use copy_propagation::copy_propagation;
 use dead_code_elimination::dead_code_elimination;
 use global_value_numbering::global_value_numbering;
 use inline::inline_functions;
+use static_access::optimize_static_access;
 
 use crate::ir::cfg::{Function, Program};
 
@@ -47,6 +49,9 @@ fn optimize_single_pass(function: &mut Function, features: &Features) {
     if features.global_value_numbering {
         global_value_numbering(function);
     }
+    if features.static_access {
+        optimize_static_access(function);
+    }
     if features.dead_code_elimination {
         dead_code_elimination(function);
     }
@@ -73,6 +78,9 @@ fn optimize_to_fixpoint(function: &mut Function, features: &Features) {
         }
         if features.global_value_numbering {
             changed |= global_value_numbering(function);
+        }
+        if features.static_access {
+            changed |= optimize_static_access(function);
         }
         if features.dead_code_elimination {
             changed |= dead_code_elimination(function);
