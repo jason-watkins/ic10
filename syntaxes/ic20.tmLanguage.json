@@ -13,6 +13,9 @@
             "include": "#const-declaration"
         },
         {
+            "include": "#static-declaration"
+        },
+        {
             "include": "#function-declaration"
         },
         {
@@ -63,6 +66,40 @@
                     "name": "entity.name.constant.ic20"
                 },
                 "3": {
+                    "name": "punctuation.separator.colon.ic20"
+                }
+            },
+            "end": ";",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.terminator.semicolon.ic20"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "include": "#types"
+                },
+                {
+                    "include": "#expressions"
+                }
+            ]
+        },
+        "static-declaration": {
+            "begin": "\\b(static)\\s+(mut\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*(:)",
+            "beginCaptures": {
+                "1": {
+                    "name": "keyword.other.static.ic20"
+                },
+                "2": {
+                    "name": "storage.modifier.mut.ic20"
+                },
+                "3": {
+                    "name": "entity.name.variable.static.ic20"
+                },
+                "4": {
                     "name": "punctuation.separator.colon.ic20"
                 }
             },
@@ -321,7 +358,7 @@
         "keywords": {
             "patterns": [
                 {
-                    "match": "\\b(let|const|fn|device)\\b",
+                    "match": "\\b(let|const|static|fn|device)\\b",
                     "name": "keyword.other.ic20"
                 },
                 {
@@ -339,7 +376,7 @@
             ]
         },
         "reserved-keywords": {
-            "match": "\\b(enum|extern|match|pub|ref|static|struct|super|trait|type|unsafe|where|pin|batch_read_named|batch_write_named|batch_read_slot|batch_write_slot|batch_read_slot_named|batch_write_slot_named|bit_extract|bit_insert)\\b",
+            "match": "\\b(enum|extern|match|pub|ref|struct|super|trait|type|unsafe|where|pin|batch_read_named|batch_write_named|batch_read_slot|batch_write_slot|batch_read_slot_named|batch_write_slot_named|bit_extract|bit_insert)\\b",
             "name": "keyword.reserved.ic20"
         },
         "constants": {

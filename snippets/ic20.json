@@ -36,6 +36,16 @@
         "body": "const ${1:NAME}: ${2|f64,i53,bool|} = ${3:0.0};",
         "description": "Compile-time constant"
     },
+    "static": {
+        "prefix": "static",
+        "body": "static ${1:NAME}: ${2|f64,i53,bool|} = ${3:0.0};",
+        "description": "Immutable static variable"
+    },
+    "static mut": {
+        "prefix": "staticm",
+        "body": "static mut ${1:name}: ${2|f64,i53,bool|} = ${3:0.0};",
+        "description": "Mutable static variable"
+    },
     "let": {
         "prefix": "let",
         "body": "let ${1:name} = ${2:0};",
