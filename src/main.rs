@@ -357,6 +357,12 @@ fn find_hover_in_expression(
                             },
                         BoundSymbolKind::Parameter => "",
                         BoundSymbolKind::Function => "fn ",
+                        BoundSymbolKind::Static(_) =>
+                            if info.mutable {
+                                "static mut "
+                            } else {
+                                "static "
+                            },
                     },
                     info.name,
                     type_name(&info.ty)
@@ -701,6 +707,9 @@ fn find_symbol_definition(
             Item::Device(d) if d.name == info.name => {
                 return Some(DefinitionLocation { span: d.span });
             }
+            Item::Static(s) if s.name == info.name => {
+                return Some(DefinitionLocation { span: s.span });
+            }
             _ => {}
         }
     }
@@ -793,6 +802,23 @@ fn document_symbols_from_ast(ast: &AstProgram, source: &str) -> Vec<DocumentSymb
                     deprecated: None,
                     range: span_to_range(source, d.span),
                     selection_range: span_to_range(source, d.span),
+                    children: None,
+                });
+            }
+            Item::Static(s) => {
+                #[allow(deprecated)]
+                symbols.push(DocumentSymbol {
+                    name: s.name.clone(),
+                    detail: Some(format!(
+                        "static{}: {}",
+                        if s.mutable { " mut" } else { "" },
+                        type_name(&s.ty)
+                    )),
+                    kind: SymbolKind::VARIABLE,
+                    tags: None,
+                    deprecated: None,
+                    range: span_to_range(source, s.span),
+                    selection_range: span_to_range(source, s.span),
                     children: None,
                 });
             }
@@ -940,6 +966,20 @@ impl LanguageServer for Backend {
                             value: format!("```ic20\nconst {}: {}\n```", c.name, type_name(&c.ty)),
                         }),
                         range: Some(span_to_range(&state.source, c.span)),
+                    }));
+                }
+                Item::Static(s) if contains(s.span, offset) => {
+                    return Ok(Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: format!(
+                                "```ic20\nstatic{} {}: {}\n```",
+                                if s.mutable { " mut" } else { "" },
+                                s.name,
+                                type_name(&s.ty)
+                            ),
+                        }),
+                        range: Some(span_to_range(&state.source, s.span)),
                     }));
                 }
                 Item::Device(d) if contains(d.span, offset) => {
