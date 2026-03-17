@@ -54,6 +54,7 @@ pub fn allocate_registers(
                     &result,
                     &calling_convention,
                     &program.symbols,
+                    &program.statics,
                 );
                 ic10_functions.push(ic10_function);
                 all_call_sites.push(call_sites);

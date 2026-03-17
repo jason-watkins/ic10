@@ -9,11 +9,13 @@ pub(super) fn instruction_dest(instruction: &Instruction) -> Option<TempId> {
         | Instruction::LoadDevice { dest, .. }
         | Instruction::LoadSlot { dest, .. }
         | Instruction::BatchRead { dest, .. }
-        | Instruction::IntrinsicCall { dest, .. } => Some(*dest),
+        | Instruction::IntrinsicCall { dest, .. }
+        | Instruction::LoadStatic { dest, .. } => Some(*dest),
         Instruction::Call { dest, .. } => *dest,
         Instruction::StoreDevice { .. }
         | Instruction::StoreSlot { .. }
         | Instruction::BatchWrite { .. }
+        | Instruction::StoreStatic { .. }
         | Instruction::Sleep { .. }
         | Instruction::Yield => None,
     }
@@ -25,6 +27,8 @@ pub(super) fn instruction_uses(instruction: &Instruction) -> Vec<TempId> {
         Instruction::Phi { args, .. } => args.iter().map(|&(temp, _)| temp).collect(),
         Instruction::LoadDevice { .. } => vec![],
         Instruction::StoreDevice { source, .. } => vec![*source],
+        Instruction::LoadStatic { .. } => vec![],
+        Instruction::StoreStatic { source, .. } => vec![*source],
         Instruction::LoadSlot { slot, .. } => vec![*slot],
         Instruction::StoreSlot { slot, source, .. } => vec![*slot, *source],
         Instruction::BatchRead { hash, .. } => vec![*hash],
@@ -65,6 +69,7 @@ pub(super) fn has_side_effects(instruction: &Instruction) -> bool {
         Instruction::StoreDevice { .. }
             | Instruction::StoreSlot { .. }
             | Instruction::BatchWrite { .. }
+            | Instruction::StoreStatic { .. }
             | Instruction::Call { .. }
             | Instruction::Sleep { .. }
             | Instruction::Yield
@@ -140,6 +145,10 @@ pub(super) fn substitute_in_instruction(
         }
         Instruction::LoadDevice { .. } => {}
         Instruction::StoreDevice { source, .. } => {
+            substitute_temp(source, substitutions);
+        }
+        Instruction::LoadStatic { .. } => {}
+        Instruction::StoreStatic { source, .. } => {
             substitute_temp(source, substitutions);
         }
         Instruction::LoadSlot { slot, .. } => {

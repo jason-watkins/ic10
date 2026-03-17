@@ -24,6 +24,7 @@ pub enum Keyword {
     Yield,
     Sleep,
     Device,
+    Static,
     As,
     Mut,
     Bool,
@@ -42,7 +43,6 @@ pub enum Reserved {
     Match,
     Pub,
     Ref,
-    Static,
     Struct,
     Super,
     Trait,
@@ -160,7 +160,7 @@ fn keyword(s: &str) -> Option<TokenKind> {
         "match" => Some(TokenKind::Reserved(Reserved::Match)),
         "pub" => Some(TokenKind::Reserved(Reserved::Pub)),
         "ref" => Some(TokenKind::Reserved(Reserved::Ref)),
-        "static" => Some(TokenKind::Reserved(Reserved::Static)),
+        "static" => Some(TokenKind::Keyword(Keyword::Static)),
         "struct" => Some(TokenKind::Reserved(Reserved::Struct)),
         "super" => Some(TokenKind::Reserved(Reserved::Super)),
         "trait" => Some(TokenKind::Reserved(Reserved::Trait)),
@@ -702,14 +702,13 @@ mod tests {
     #[test]
     fn all_reserved_keywords() {
         assert_eq!(
-            kinds("enum extern match pub ref static struct super trait type unsafe where pin"),
+            kinds("enum extern match pub ref struct super trait type unsafe where pin"),
             vec![
                 TokenKind::Reserved(Reserved::Enum),
                 TokenKind::Reserved(Reserved::Extern),
                 TokenKind::Reserved(Reserved::Match),
                 TokenKind::Reserved(Reserved::Pub),
                 TokenKind::Reserved(Reserved::Ref),
-                TokenKind::Reserved(Reserved::Static),
                 TokenKind::Reserved(Reserved::Struct),
                 TokenKind::Reserved(Reserved::Super),
                 TokenKind::Reserved(Reserved::Trait),

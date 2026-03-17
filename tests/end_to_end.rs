@@ -565,3 +565,132 @@ hcf"#;
         "expected bnan with swapped blocks: {output}"
     );
 }
+
+#[test]
+fn static_read() {
+    let output = compile(
+        r#"
+        device out: d0;
+        static THRESHOLD: f64 = 100.0;
+        fn main() {
+            out.Setting = THRESHOLD;
+        }
+        "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("get"),
+        "expected get instruction for static read: {output}"
+    );
+    assert!(
+        output.contains("db"),
+        "expected db device reference for static read: {output}"
+    );
+    assert!(
+        output.contains("poke"),
+        "expected poke instruction for static initializer: {output}"
+    );
+}
+
+#[test]
+fn static_mut_write_and_read() {
+    let output = compile(
+        r#"
+        device out: d0;
+        static mut counter: i53 = 0;
+        fn main() {
+            counter = counter + 1;
+            out.Setting = counter;
+        }
+        "#,
+    )
+    .unwrap();
+    let poke_count = output.lines().filter(|l| l.starts_with("poke")).count();
+    assert!(
+        poke_count >= 2,
+        "expected at least 2 poke instructions (initializer + write): {output}"
+    );
+    assert!(
+        output.contains("get"),
+        "expected get instruction for static read: {output}"
+    );
+}
+
+#[test]
+fn static_immutable_assignment_rejected() {
+    let result = compile(
+        r#"
+        static X: i53 = 1;
+        fn main() {
+            X = 2;
+        }
+        "#,
+    );
+    assert!(
+        result.is_err(),
+        "assignment to immutable static should fail"
+    );
+}
+
+#[test]
+fn static_multiple_variables() {
+    let output = compile(
+        r#"
+        device out: d0;
+        static A: f64 = 1.0;
+        static B: f64 = 2.0;
+        static C: f64 = 3.0;
+        fn main() {
+            out.Setting = A + B + C;
+        }
+        "#,
+    )
+    .unwrap();
+    let poke_count = output.lines().filter(|l| l.starts_with("poke")).count();
+    assert!(
+        poke_count >= 3,
+        "expected at least 3 poke instructions for 3 static initializers: {output}"
+    );
+}
+
+#[test]
+fn static_initializer_references_constant() {
+    let output = compile(
+        r#"
+        device out: d0;
+        const BASE: f64 = 10.0;
+        static DOUBLED: f64 = BASE * 2.0;
+        fn main() {
+            out.Setting = DOUBLED;
+        }
+        "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("poke"),
+        "expected poke instruction for static initializer: {output}"
+    );
+}
+
+#[test]
+fn static_addresses_are_distinct() {
+    let output = compile(
+        r#"
+        device out: d0;
+        static A: i53 = 1;
+        static B: i53 = 2;
+        fn main() {
+            out.Setting = A + B;
+        }
+        "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("511"),
+        "expected address 511 for first static: {output}"
+    );
+    assert!(
+        output.contains("510"),
+        "expected address 510 for second static: {output}"
+    );
+}

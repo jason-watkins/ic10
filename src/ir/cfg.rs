@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::bound::{SymbolId, SymbolTable};
+use super::bound::{StaticId, StaticVariable, SymbolId, SymbolTable};
 use super::shared::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
 /// An opaque identifier for a temporary (three-address) value.
@@ -15,6 +15,7 @@ pub struct BlockId(pub usize);
 #[derive(Debug)]
 pub struct Program {
     pub functions: Vec<Function>,
+    pub statics: Vec<StaticVariable>,
     pub symbols: SymbolTable,
 }
 
@@ -156,6 +157,16 @@ pub enum Instruction {
     Sleep { duration: TempId },
     /// `yield`
     Yield,
+    /// `dest = get db <static_address>` — load a static variable from its home location.
+    LoadStatic {
+        dest: TempId,
+        static_id: StaticId,
+    },
+    /// `poke <static_address> source` — store a value to a static variable's home location.
+    StoreStatic {
+        static_id: StaticId,
+        source: TempId,
+    },
 }
 
 /// A pure operation that produces a value.

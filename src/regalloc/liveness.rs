@@ -165,11 +165,13 @@ fn instruction_defs(instruction: &Instruction) -> Vec<TempId> {
             dest: Some(dest), ..
         } => vec![*dest],
         Instruction::IntrinsicCall { dest, .. } => vec![*dest],
+        Instruction::LoadStatic { dest, .. } => vec![*dest],
         Instruction::StoreDevice { .. }
         | Instruction::StoreSlot { .. }
         | Instruction::BatchWrite { .. }
         | Instruction::Call { dest: None, .. }
         | Instruction::Sleep { .. }
+        | Instruction::StoreStatic { .. }
         | Instruction::Yield => vec![],
     }
 }
@@ -180,7 +182,9 @@ pub(crate) fn instruction_uses(instruction: &Instruction) -> Vec<TempId> {
         Instruction::Assign { operation, .. } => operation_uses(operation),
         Instruction::Phi { args, .. } => args.iter().map(|(temp, _)| *temp).collect(),
         Instruction::LoadDevice { .. } => vec![],
+        Instruction::LoadStatic { .. } => vec![],
         Instruction::StoreDevice { source, .. } => vec![*source],
+        Instruction::StoreStatic { source, .. } => vec![*source],
         Instruction::LoadSlot { slot, .. } => vec![*slot],
         Instruction::StoreSlot { slot, source, .. } => vec![*slot, *source],
         Instruction::BatchRead { hash, .. } => vec![*hash],

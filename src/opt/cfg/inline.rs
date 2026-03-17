@@ -274,6 +274,14 @@ fn inline_call_into_function(
                     field: field.clone(),
                     source: remap_temp(*source),
                 },
+                Instruction::LoadStatic { dest, static_id } => Instruction::LoadStatic {
+                    dest: remap_temp(*dest),
+                    static_id: *static_id,
+                },
+                Instruction::StoreStatic { static_id, source } => Instruction::StoreStatic {
+                    static_id: *static_id,
+                    source: remap_temp(*source),
+                },
                 Instruction::LoadSlot {
                     dest,
                     pin,

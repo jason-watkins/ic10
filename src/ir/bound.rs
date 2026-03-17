@@ -6,11 +6,34 @@ use super::shared::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, Unary
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymbolId(pub usize);
 
+/// An opaque index into the program's static variable list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StaticId(pub usize);
+
 /// The bound, type-annotated program — output of the bind pass.
 #[derive(Debug, Clone)]
 pub struct Program {
     pub functions: Vec<FunctionDeclaration>,
+    pub statics: Vec<StaticVariable>,
+    pub static_initializers: Vec<StaticInitializer>,
     pub symbols: SymbolTable,
+}
+
+/// A resolved static variable declaration (§4.4).
+#[derive(Debug, Clone)]
+pub struct StaticVariable {
+    pub name: String,
+    pub mutable: bool,
+    pub ty: Type,
+    pub address: u16,
+}
+
+/// A static variable's initializer expression, bound and type-checked.
+#[derive(Debug, Clone)]
+pub struct StaticInitializer {
+    pub static_id: StaticId,
+    pub expression: Expression,
+    pub span: Span,
 }
 
 /// Maps `SymbolId → SymbolInfo` for every let-binding, parameter, and function symbol.
@@ -51,6 +74,7 @@ pub enum SymbolKind {
     Local,
     Parameter,
     Function,
+    Static(StaticId),
 }
 
 /// A resolved function declaration.

@@ -12,7 +12,8 @@ use crate::ir::bound::{
     AssignStatement, AssignmentTarget, BatchWriteStatement, Block, BreakStatement,
     ContinueStatement, ElseClause, Expression, ExpressionKind, ExpressionStatement, ForStatement,
     FunctionDeclaration, IfStatement, LetStatement, Parameter, Program, ReturnStatement,
-    SleepStatement, Statement, SymbolId, SymbolInfo, SymbolKind, SymbolTable, WhileStatement,
+    SleepStatement, Statement, StaticId, StaticInitializer, StaticVariable, SymbolId, SymbolInfo,
+    SymbolKind, SymbolTable, WhileStatement,
 };
 use crate::ir::{BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
@@ -22,6 +23,7 @@ enum ScopeEntry {
     Symbol(SymbolId),
     Constant(f64, Type),
     Device(DevicePin),
+    Static(SymbolId),
 }
 
 /// The compile-time signature of a function, recorded during the top-level pre-pass.
@@ -35,6 +37,8 @@ struct Binder {
     symbols: SymbolTable,
     scopes: Vec<HashMap<String, ScopeEntry>>,
     function_signatures: HashMap<String, FunctionSignature>,
+    statics: Vec<StaticVariable>,
+    static_initializers: Vec<StaticInitializer>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -44,6 +48,8 @@ impl Binder {
             symbols: SymbolTable::default(),
             scopes: Vec::new(),
             function_signatures: HashMap::new(),
+            statics: Vec::new(),
+            static_initializers: Vec::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -194,6 +200,7 @@ impl Binder {
                         self.define(c.name.clone(), ScopeEntry::Constant(value, c.ty));
                     }
                 }
+                Item::Static(_) => {}
                 Item::Device(d) => {
                     self.define(d.name.clone(), ScopeEntry::Device(d.pin));
                 }
@@ -226,6 +233,78 @@ impl Binder {
                         },
                     );
                 }
+            }
+        }
+    }
+
+    /// Bind static variable declarations in source order (§4.4).
+    ///
+    /// Each static's initializer is bound with full expression resolution (including
+    /// device reads and function calls). A static may reference constants, devices,
+    /// functions, and any static declared earlier in the source file.
+    fn bind_statics(&mut self, program: &AstProgram) {
+        let mut next_address: u16 = 511;
+        for item in &program.items {
+            if let Item::Static(s) = item {
+                let static_id = StaticId(self.statics.len());
+                let address = next_address;
+                next_address = next_address.saturating_sub(1);
+
+                let init = self.bind_expression(&s.initializer);
+                let actual_type = init.ty;
+
+                let is_device_read = matches!(
+                    init.kind,
+                    ExpressionKind::DeviceRead { .. }
+                        | ExpressionKind::SlotRead { .. }
+                        | ExpressionKind::BatchRead { .. }
+                );
+
+                let (init, _) = if actual_type == s.ty {
+                    (init, s.ty)
+                } else if is_device_read
+                    && matches!(
+                        (actual_type, s.ty),
+                        (Type::F64, Type::Bool) | (Type::F64, Type::I53)
+                    )
+                {
+                    let span = s.initializer.span;
+                    let coerced = Expression {
+                        kind: ExpressionKind::Cast(Box::new(init), s.ty),
+                        ty: s.ty,
+                        span,
+                    };
+                    (coerced, s.ty)
+                } else {
+                    self.error(
+                        s.initializer.span,
+                        format!(
+                            "type mismatch: static `{}` declared as `{:?}` but initializer has type `{:?}`",
+                            s.name, s.ty, actual_type
+                        ),
+                    );
+                    (init, s.ty)
+                };
+
+                let symbol_id = self.allocate_symbol(SymbolInfo {
+                    name: s.name.clone(),
+                    ty: s.ty,
+                    mutable: s.mutable,
+                    kind: SymbolKind::Static(static_id),
+                });
+                self.define(s.name.clone(), ScopeEntry::Static(symbol_id));
+
+                self.statics.push(StaticVariable {
+                    name: s.name.clone(),
+                    mutable: s.mutable,
+                    ty: s.ty,
+                    address,
+                });
+                self.static_initializers.push(StaticInitializer {
+                    static_id,
+                    expression: init,
+                    span: s.span,
+                });
             }
         }
     }
@@ -522,7 +601,7 @@ impl Binder {
     ) -> AssignmentTarget {
         match target {
             AstAssignmentTarget::Var { name, span } => match self.lookup(name) {
-                Some(ScopeEntry::Symbol(id)) => {
+                Some(ScopeEntry::Symbol(id) | ScopeEntry::Static(id)) => {
                     let id = *id;
                     let (is_mutable, expected_type) = {
                         let info = self.symbols.get(id);
@@ -692,7 +771,7 @@ impl Binder {
                         span: expr.span,
                     }
                 }
-                Some(ScopeEntry::Symbol(id)) => {
+                Some(ScopeEntry::Symbol(id) | ScopeEntry::Static(id)) => {
                     let id = *id;
                     let ty = self.symbols.get(id).ty;
                     Expression {
@@ -1234,6 +1313,7 @@ pub fn bind(program: &AstProgram) -> Result<(Program, Vec<Diagnostic>), Vec<Diag
 
     binder.push_scope();
     binder.pre_pass(program);
+    binder.bind_statics(program);
     binder.validate_main(program);
 
     let functions: Vec<FunctionDeclaration> = program
@@ -1260,6 +1340,8 @@ pub fn bind(program: &AstProgram) -> Result<(Program, Vec<Diagnostic>), Vec<Diag
         Ok((
             Program {
                 functions,
+                statics: binder.statics,
+                static_initializers: binder.static_initializers,
                 symbols: binder.symbols,
             },
             binder.diagnostics,

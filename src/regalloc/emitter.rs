@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ir::bound::SymbolTable;
+use crate::ir::bound::{StaticVariable, SymbolTable};
 use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator,
 };
+use crate::ir::DevicePin;
 use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
 use super::allocator::{AllocationResult, SpillRecord};
@@ -37,6 +38,7 @@ struct Emitter<'a> {
     assignments: &'a HashMap<TempId, Register>,
     calling_convention: &'a CallingConventionInfo,
     symbols: &'a SymbolTable,
+    statics: &'a [StaticVariable],
     spills: &'a [SpillRecord],
     output: Vec<IC10Instruction>,
     /// Spills indexed by the position at which the push should be emitted.
@@ -102,6 +104,7 @@ impl<'a> Emitter<'a> {
         result: &'a AllocationResult,
         calling_convention: &'a CallingConventionInfo,
         symbols: &'a SymbolTable,
+        statics: &'a [StaticVariable],
     ) -> Self {
         let mut spills_at: HashMap<LinearPosition, Vec<&SpillRecord>> = HashMap::new();
         let mut reloads_at: HashMap<LinearPosition, Vec<&SpillRecord>> = HashMap::new();
@@ -122,6 +125,7 @@ impl<'a> Emitter<'a> {
             assignments: &result.assignments,
             calling_convention,
             symbols,
+            statics,
             spills: &result.spills,
             output: Vec::new(),
             spills_at,
@@ -351,6 +355,21 @@ impl<'a> Emitter<'a> {
             }
             Instruction::Yield => {
                 self.emit(IC10Instruction::Yield);
+            }
+            Instruction::LoadStatic { dest, static_id } => {
+                let address = self.statics[static_id.0].address;
+                self.emit(IC10Instruction::Get(
+                    self.register_of(*dest),
+                    DevicePin::Db,
+                    Operand::Literal(address as f64),
+                ));
+            }
+            Instruction::StoreStatic { static_id, source } => {
+                let address = self.statics[static_id.0].address;
+                self.emit(IC10Instruction::Poke(
+                    Operand::Literal(address as f64),
+                    self.operand_of(*source),
+                ));
             }
         }
     }
@@ -899,6 +918,7 @@ pub fn emit_function(
     result: &AllocationResult,
     calling_convention: &CallingConventionInfo,
     symbols: &SymbolTable,
+    statics: &[StaticVariable],
 ) -> (IC10Function, Vec<EmittedCallSite>) {
     let emitter = Emitter::new(
         function,
@@ -907,6 +927,7 @@ pub fn emit_function(
         result,
         calling_convention,
         symbols,
+        statics,
     );
     emitter.emit_function()
 }

@@ -171,6 +171,14 @@ fn canonicalize_instruction(
             let source_index = map(*source, mapping, next_index);
             let _ = write!(output, "store_device {:?} {} t{}", pin, field, source_index);
         }
+        Instruction::LoadStatic { dest, static_id } => {
+            let dest_index = map(*dest, mapping, next_index);
+            let _ = write!(output, "load_static t{} {:?}", dest_index, static_id);
+        }
+        Instruction::StoreStatic { static_id, source } => {
+            let source_index = map(*source, mapping, next_index);
+            let _ = write!(output, "store_static {:?} t{}", static_id, source_index);
+        }
         Instruction::LoadSlot {
             dest,
             pin,

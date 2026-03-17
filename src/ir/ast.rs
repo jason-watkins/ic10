@@ -9,10 +9,11 @@ pub struct Program {
     pub span: Span,
 }
 
-/// A top-level item: `const`, `device`, or `fn` (§1.2).
+/// A top-level item: `const`, `static`, `device`, or `fn` (§1.2).
 #[derive(Debug, Clone)]
 pub enum Item {
     Const(ConstDeclaration),
+    Static(StaticDeclaration),
     Device(DeviceDeclaration),
     Fn(FunctionDeclaration),
 }
@@ -23,6 +24,16 @@ pub struct ConstDeclaration {
     pub name: String,
     pub ty: Type,
     pub value: Expression,
+    pub span: Span,
+}
+
+/// `static [mut] NAME: Type = expr;` — a top-level variable with a fixed stack home (§4.4).
+#[derive(Debug, Clone)]
+pub struct StaticDeclaration {
+    pub name: String,
+    pub mutable: bool,
+    pub ty: Type,
+    pub initializer: Expression,
     pub span: Span,
 }
 

@@ -183,6 +183,8 @@ fn instruction_uses(instruction: &Instruction) -> Vec<TempId> {
         Instruction::IntrinsicCall { args, .. } => args.clone(),
         Instruction::Sleep { duration } => vec![*duration],
         Instruction::Yield => vec![],
+        Instruction::LoadStatic { .. } => vec![],
+        Instruction::StoreStatic { source, .. } => vec![*source],
     }
 }
 
@@ -207,8 +209,10 @@ fn instruction_dest(instruction: &Instruction) -> Option<TempId> {
         | Instruction::BatchRead { dest, .. }
         | Instruction::IntrinsicCall { dest, .. } => Some(*dest),
         Instruction::Call { dest, .. } => *dest,
+        Instruction::LoadStatic { dest, .. } => Some(*dest),
         Instruction::StoreDevice { .. }
         | Instruction::StoreSlot { .. }
+        | Instruction::StoreStatic { .. }
         | Instruction::BatchWrite { .. }
         | Instruction::Sleep { .. }
         | Instruction::Yield => None,
@@ -514,7 +518,13 @@ fn rename_operands(
         Instruction::Sleep { duration } => {
             rename_temp(duration, definition_map, stacks);
         }
-        Instruction::Phi { .. } | Instruction::LoadDevice { .. } | Instruction::Yield => {}
+        Instruction::StoreStatic { source, .. } => {
+            rename_temp(source, definition_map, stacks);
+        }
+        Instruction::Phi { .. }
+        | Instruction::LoadDevice { .. }
+        | Instruction::LoadStatic { .. }
+        | Instruction::Yield => {}
     }
 }
 

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::diagnostic::{Diagnostic, Span};
 use crate::ir::bound::{
     self, AssignmentTarget, BatchWriteStatement, ElseClause, ExpressionKind,
-    Program as BoundProgram, Statement, SymbolId,
+    Program as BoundProgram, Statement, SymbolId, SymbolKind,
 };
 use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, Program, TempId, Terminator,
@@ -18,13 +18,14 @@ struct LoopContext {
 }
 
 /// Builds a CFG `Function` from a `bound::FunctionDeclaration`.
-struct Builder {
+struct Builder<'a> {
     blocks: Vec<BasicBlock>,
     next_temp: usize,
     current_block: BlockId,
     loop_stack: Vec<LoopContext>,
     variable_temps: HashMap<SymbolId, TempId>,
     variable_definitions: HashMap<SymbolId, Vec<(TempId, BlockId)>>,
+    symbols: &'a bound::SymbolTable,
     diagnostics: Vec<Diagnostic>,
     /// Set to the span of a break/continue/return once we enter unreachable territory.
     /// The next statement lowered while this is `Some` triggers a warning, then further
@@ -36,8 +37,8 @@ struct Builder {
     next_loop_index: usize,
 }
 
-impl Builder {
-    fn new() -> Self {
+impl<'a> Builder<'a> {
+    fn new(symbols: &'a bound::SymbolTable) -> Self {
         Self {
             blocks: Vec::new(),
             next_temp: 0,
@@ -45,6 +46,7 @@ impl Builder {
             loop_stack: Vec::new(),
             variable_temps: HashMap::new(),
             variable_definitions: HashMap::new(),
+            symbols,
             diagnostics: Vec::new(),
             unreachable_after: None,
             next_if_index: 0,
@@ -131,13 +133,22 @@ impl Builder {
             }
 
             ExpressionKind::Variable(symbol_id) => {
-                let source = self.variable_temps[symbol_id];
-                let dest = self.fresh_temp();
-                self.emit(Instruction::Assign {
-                    dest,
-                    operation: Operation::Copy(source),
-                });
-                dest
+                if let SymbolKind::Static(static_id) = self.symbols.get(*symbol_id).kind {
+                    let dest = self.fresh_temp();
+                    self.emit(Instruction::LoadStatic {
+                        dest,
+                        static_id,
+                    });
+                    dest
+                } else {
+                    let source = self.variable_temps[symbol_id];
+                    let dest = self.fresh_temp();
+                    self.emit(Instruction::Assign {
+                        dest,
+                        operation: Operation::Copy(source),
+                    });
+                    dest
+                }
             }
 
             ExpressionKind::Binary(operator, left, right) => {
@@ -298,12 +309,19 @@ impl Builder {
             Statement::Assign(assign_statement) => match &assign_statement.target {
                 AssignmentTarget::Variable { symbol_id, .. } => {
                     let value_temp = self.lower_expression(&assign_statement.value);
-                    let dest = self.fresh_temp();
-                    self.emit(Instruction::Assign {
-                        dest,
-                        operation: Operation::Copy(value_temp),
-                    });
-                    self.record_variable_definition(*symbol_id, dest);
+                    if let SymbolKind::Static(static_id) = self.symbols.get(*symbol_id).kind {
+                        self.emit(Instruction::StoreStatic {
+                            static_id,
+                            source: value_temp,
+                        });
+                    } else {
+                        let dest = self.fresh_temp();
+                        self.emit(Instruction::Assign {
+                            dest,
+                            operation: Operation::Copy(value_temp),
+                        });
+                        self.record_variable_definition(*symbol_id, dest);
+                    }
                 }
 
                 AssignmentTarget::DeviceField { pin, field, .. } => {
@@ -755,9 +773,10 @@ impl Builder {
 /// Lower a single `bound::FunctionDeclaration` into a `cfg::Function`.
 fn lower_function(
     function: &bound::FunctionDeclaration,
+    bound_program: &BoundProgram,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Function {
-    let mut builder = Builder::new();
+    let mut builder = Builder::new(&bound_program.symbols);
     let entry = builder.new_block();
     builder.blocks[entry.0].role = BlockRole::Entry;
     builder.switch_to(entry);
@@ -771,6 +790,16 @@ fn lower_function(
         });
         builder.record_variable_definition(parameter.symbol_id, temp);
         parameter_ids.push(parameter.symbol_id);
+    }
+
+    if function.name == "main" {
+        for initializer in &bound_program.static_initializers {
+            let value_temp = builder.lower_expression(&initializer.expression);
+            builder.emit(Instruction::StoreStatic {
+                static_id: initializer.static_id,
+                source: value_temp,
+            });
+        }
     }
 
     builder.lower_block(&function.body);
@@ -947,11 +976,12 @@ pub fn build(bound_program: &BoundProgram) -> (Program, Vec<Diagnostic>) {
     let functions = bound_program
         .functions
         .iter()
-        .map(|f| lower_function(f, &mut diagnostics))
+        .map(|f| lower_function(f, bound_program, &mut diagnostics))
         .collect();
     (
         Program {
             functions,
+            statics: bound_program.statics.clone(),
             symbols: bound_program.symbols.clone(),
         },
         diagnostics,

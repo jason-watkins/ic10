@@ -3,7 +3,8 @@ use crate::ir::ast::{
     AssignStatement, AssignmentTarget, BatchWriteStatement, Block, BreakStatement, CallExpression,
     ConstDeclaration, ContinueStatement, DeviceDeclaration, ElseClause, Expression, ExpressionKind,
     ExpressionStatement, ForStatement, FunctionDeclaration, IfStatement, Item, LetStatement,
-    LiteralKind, Parameter, Program, ReturnStatement, SleepStatement, Statement, WhileStatement,
+    LiteralKind, Parameter, Program, ReturnStatement, SleepStatement, StaticDeclaration, Statement,
+    WhileStatement,
 };
 use crate::ir::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 use crate::lexer::{Keyword, Literal, Operator, Punctuator, Token, TokenKind};
@@ -149,6 +150,9 @@ impl Parser {
     fn parse_item(&mut self) -> Option<Item> {
         let result = match self.peek_kind() {
             TokenKind::Keyword(Keyword::Const) => self.parse_const_declaration().map(Item::Const),
+            TokenKind::Keyword(Keyword::Static) => {
+                self.parse_static_declaration().map(Item::Static)
+            }
             TokenKind::Keyword(Keyword::Device) => {
                 self.parse_device_declaration().map(Item::Device)
             }
@@ -158,7 +162,7 @@ impl Parser {
                 self.diagnostics.push(Diagnostic::error(
                     span,
                     format!(
-                        "expected `const`, `device`, or `fn`, found `{}`",
+                        "expected `const`, `static`, `device`, or `fn`, found `{}`",
                         token_kind_name(self.peek_kind())
                     ),
                 ));
@@ -188,6 +192,25 @@ impl Parser {
             name,
             ty,
             value,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    /// Parse a `static [mut] NAME: Type = expr;` declaration (§4.4).
+    fn parse_static_declaration(&mut self) -> Result<StaticDeclaration, ()> {
+        let start = self.expect(&TokenKind::Keyword(Keyword::Static))?;
+        let mutable = self.accept(&TokenKind::Keyword(Keyword::Mut)).is_some();
+        let (name, _) = self.expect_identifier()?;
+        self.expect(&TokenKind::Punctuator(Punctuator::Colon))?;
+        let ty = self.parse_type()?;
+        self.expect(&TokenKind::Operator(Operator::Eq))?;
+        let initializer = self.parse_expression()?;
+        let end = self.expect(&TokenKind::Punctuator(Punctuator::Semi))?;
+        Ok(StaticDeclaration {
+            name,
+            mutable,
+            ty,
+            initializer,
             span: Span::new(start.start, end.end),
         })
     }
@@ -1149,6 +1172,7 @@ fn token_kind_name(kind: &TokenKind) -> &'static str {
         TokenKind::Keyword(Keyword::Yield) => "`yield`",
         TokenKind::Keyword(Keyword::Sleep) => "`sleep`",
         TokenKind::Keyword(Keyword::Device) => "`device`",
+        TokenKind::Keyword(Keyword::Static) => "`static`",
         TokenKind::Keyword(Keyword::As) => "`as`",
         TokenKind::Keyword(Keyword::Mut) => "`mut`",
         TokenKind::Keyword(Keyword::Bool) => "`bool`",
@@ -2476,7 +2500,7 @@ mod tests {
         assert!(
             errors[0]
                 .message
-                .contains("expected `const`, `device`, or `fn`")
+                .contains("expected `const`, `static`, `device`, or `fn`")
         );
         assert_eq!(errors[0].span, Span::new(0, 2));
     }
