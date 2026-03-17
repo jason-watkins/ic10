@@ -8,6 +8,12 @@ use crate::ir::cfg::{
 
 use super::utilities::{build_def_map, instruction_target, instruction_uses};
 
+/// Hoists loop-invariant instructions into pre-header blocks.
+///
+/// An instruction is loop-invariant when all of its operands are defined
+/// outside the loop or are themselves loop-invariant. For each natural loop,
+/// a dedicated pre-header block is created (or reused) and qualifying
+/// instructions are moved there.
 pub(super) fn loop_invariant_code_motion(function: &mut Function) -> bool {
     let loops = find_natural_loops(function);
     if loops.is_empty() {

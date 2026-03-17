@@ -1,41 +1,75 @@
+//! Lexer — tokenizes IC20 source text into a flat token stream.
+
 use crate::diagnostic::{Diagnostic, Span};
 
+/// A parsed literal value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
+    /// A 53-bit signed integer literal (decimal, hex, octal, or binary).
     I53(i64),
+    /// A 64-bit floating-point literal.
     F64(f64),
+    /// A double-quoted string literal (used only by `hash("...")`).
     String(String),
 }
 
+/// An active keyword recognized by the lexer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Keyword {
+    /// `let` — local variable binding.
     Let,
+    /// `const` — compile-time constant declaration.
     Const,
+    /// `fn` — function declaration.
     Fn,
+    /// `if` — conditional branch.
     If,
+    /// `else` — alternative branch.
     Else,
+    /// `loop` — infinite loop.
     Loop,
+    /// `while` — condition-tested loop.
     While,
+    /// `for` — range-based iteration.
     For,
+    /// `in` — range delimiter in `for` loops.
     In,
+    /// `break` — exit a loop.
     Break,
+    /// `continue` — skip to the next loop iteration.
     Continue,
+    /// `return` — exit a function.
     Return,
+    /// `yield` — suspend execution for one IC10 tick.
     Yield,
+    /// `sleep` — suspend execution for a duration.
     Sleep,
+    /// `device` — hardware pin binding.
     Device,
+    /// `static` — top-level persistent variable.
     Static,
+    /// `as` — type cast operator.
     As,
+    /// `mut` — mutable qualifier.
     Mut,
+    /// The `bool` type keyword.
     Bool,
+    /// The `i53` type keyword.
     I53,
+    /// The `f64` type keyword.
     F64,
+    /// Boolean literal `true`.
     True,
+    /// Boolean literal `false`.
     False,
+    /// The `nan` floating-point constant.
     Nan,
+    /// The `inf` floating-point constant.
     Inf,
 }
 
+/// A reserved keyword that is not yet implemented but is reserved for future use.
+/// Using one of these as an identifier produces a diagnostic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reserved {
     Enum,
@@ -60,57 +94,98 @@ pub enum Reserved {
     BitInsert,
 }
 
+/// A binary or unary operator token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operator {
+    /// `+`
     Plus,
+    /// `-`
     Minus,
+    /// `*`
     Star,
+    /// `/`
     Slash,
+    /// `%`
     Percent,
+    /// `&`
     Amp,
+    /// `|`
     Pipe,
+    /// `^`
     Caret,
+    /// `~`
     Tilde,
+    /// `<<`
     Shl,
+    /// `>>`
     Shr,
+    /// `==`
     EqEq,
+    /// `!=`
     BangEq,
+    /// `<`
     Lt,
+    /// `>`
     Gt,
+    /// `<=`
     LtEq,
+    /// `>=`
     GtEq,
+    /// `&&`
     AmpAmp,
+    /// `||`
     PipePipe,
+    /// `!`
     Bang,
+    /// `=`
     Eq,
 }
 
+/// A punctuation token (delimiters, separators, range operators).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Punctuator {
+    /// `(`
     LParen,
+    /// `)`
     RParen,
+    /// `{`
     LBrace,
+    /// `}`
     RBrace,
+    /// `;`
     Semi,
+    /// `:`
     Colon,
+    /// `,`
     Comma,
+    /// `.`
     Dot,
+    /// `->`
     Arrow,
+    /// `..` (exclusive range)
     DotDot,
+    /// `..=` (inclusive range)
     DotDotEq,
 }
 
 /// Every distinct token the lexer can produce.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
+    /// A numeric or string literal.
     Literal(Literal),
+    /// A user-defined name.
     Identifier(String),
     /// A label: `'name` (used for labeled loops, break, and continue).
     Label(String),
+    /// A language keyword.
     Keyword(Keyword),
+    /// A reserved word (not yet implemented).
     Reserved(Reserved),
+    /// A binary or unary operator.
     Operator(Operator),
+    /// A delimiter or separator.
     Punctuator(Punctuator),
+    /// End of input.
     Eof,
 }
 
@@ -122,6 +197,7 @@ pub struct Token {
 }
 
 impl Token {
+    /// Creates a new token with the given kind and span.
     pub fn new(kind: TokenKind, span: Span) -> Self {
         Self { kind, span }
     }
@@ -182,13 +258,18 @@ fn keyword(s: &str) -> Option<TokenKind> {
 
 /// Converts IC20 source text into a flat `Vec<Token>`.
 pub struct Lexer<'src> {
+    /// The complete source text being lexed.
     source: &'src str,
+    /// Raw bytes of `source` for fast single-byte lookahead.
     bytes: &'src [u8],
+    /// Current byte position in the source.
     pos: usize,
+    /// Accumulated diagnostics (errors and warnings).
     diagnostics: Vec<Diagnostic>,
 }
 
 impl<'src> Lexer<'src> {
+    /// Creates a new lexer for the given source text, starting at position 0.
     pub fn new(source: &'src str) -> Self {
         Self {
             source,

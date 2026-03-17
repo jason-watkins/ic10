@@ -1,3 +1,11 @@
+//! Register allocation and IC10 code emission.
+//!
+//! Transforms the SSA-form CFG into a flat sequence of register-assigned IC10
+//! instructions. The pipeline is: phi deconstruction → linearization → liveness
+//! analysis → calling convention analysis → linear-scan allocation → instruction
+//! emission → caller/callee save insertion → IC10 peephole optimization → label
+//! resolution.
+
 pub(crate) mod allocator;
 pub(crate) mod calling_convention;
 pub(crate) mod emitter;
@@ -25,6 +33,14 @@ pub use liveness::{
 };
 pub use phi::deconstruct_phis;
 
+/// Runs the full register allocation pipeline on every function in the program.
+///
+/// On success returns a fully materialized `IC10Program` whose instructions use
+/// physical registers and have had labels resolved to line numbers (unless
+/// `keep_labels` is `true`).
+///
+/// Returns an error if any function requires more than 512 simultaneous stack
+/// spills (the IC10 stack limit).
 pub fn allocate_registers(
     program: &mut Program,
     keep_labels: bool,

@@ -1,3 +1,5 @@
+//! Unresolved abstract syntax tree — the direct output of the parser.
+
 use crate::diagnostic::Span;
 
 use super::shared::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
@@ -277,8 +279,11 @@ pub enum ExpressionKind {
 /// Literal value kinds (§2.4.3–§2.4.6).
 #[derive(Debug, Clone)]
 pub enum LiteralKind {
+    /// A 53-bit signed integer literal.
     I53(i64),
+    /// A 64-bit floating-point literal.
     F64(f64),
+    /// A boolean literal (`true` or `false`).
     Bool(bool),
 }
 

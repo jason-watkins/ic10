@@ -1,3 +1,5 @@
+//! CFG builder — lowers the bound IR into a control-flow graph of basic blocks.
+
 use std::collections::HashMap;
 
 use crate::diagnostic::{Diagnostic, Span};
@@ -11,9 +13,14 @@ use crate::ir::cfg::{
 use crate::ir::{BinaryOperator, Type};
 
 /// Loop context for break/continue targeting.
+///
+/// Pushed onto `Builder::loop_stack` when entering a loop; popped on exit.
 struct LoopContext {
+    /// Optional user-defined label (`'name`).
     label: Option<String>,
+    /// Block to jump to on `continue`.
     continue_target: BlockId,
+    /// Block to jump to on `break`.
     break_target: BlockId,
 }
 
@@ -38,6 +45,7 @@ struct Builder<'a> {
 }
 
 impl<'a> Builder<'a> {
+    /// Creates a new CFG builder for a single function.
     fn new(symbols: &'a bound::SymbolTable) -> Self {
         Self {
             blocks: Vec::new(),
@@ -54,12 +62,14 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// Allocate a fresh `TempId`.
     fn fresh_temp(&mut self) -> TempId {
         let id = TempId(self.next_temp);
         self.next_temp += 1;
         id
     }
 
+    /// Create a new empty basic block and return its `BlockId`.
     fn new_block(&mut self) -> BlockId {
         let id = BlockId(self.blocks.len());
         self.blocks.push(BasicBlock {
@@ -73,31 +83,38 @@ impl<'a> Builder<'a> {
         id
     }
 
+    /// Append an instruction to the current block.
     fn emit(&mut self, instruction: Instruction) {
         self.blocks[self.current_block.0]
             .instructions
             .push(instruction);
     }
 
+    /// Set the terminator of the current block.
     fn set_terminator(&mut self, terminator: Terminator) {
         let block = &mut self.blocks[self.current_block.0];
         block.terminator = terminator;
     }
 
+    /// Switch the insertion point to a different block.
     fn switch_to(&mut self, block: BlockId) {
         self.current_block = block;
     }
 
+    /// Add a control-flow edge from `from` to `to`, updating both
+    /// predecessor and successor lists.
     fn add_edge(&mut self, from: BlockId, to: BlockId) {
         self.blocks[from.0].successors.push(to);
         self.blocks[to.0].predecessors.push(from);
     }
 
+    /// Set the current block's terminator to an unconditional jump and add the edge.
     fn terminate_and_jump(&mut self, target: BlockId) {
         self.set_terminator(Terminator::Jump(target));
         self.add_edge(self.current_block, target);
     }
 
+    /// Set the current block's terminator to a conditional branch and add both edges.
     fn terminate_and_branch(
         &mut self,
         condition: TempId,
@@ -113,6 +130,7 @@ impl<'a> Builder<'a> {
         self.add_edge(self.current_block, false_block);
     }
 
+    /// Record that `symbol_id` is now held in `temp`, for SSA rename tracking.
     fn record_variable_definition(&mut self, symbol_id: SymbolId, temp: TempId) {
         self.variable_temps.insert(symbol_id, temp);
         self.variable_definitions
@@ -121,6 +139,8 @@ impl<'a> Builder<'a> {
             .push((temp, self.current_block));
     }
 
+    /// Lower a bound expression to a sequence of three-address instructions,
+    /// returning the `TempId` that holds the result.
     fn lower_expression(&mut self, expression: &bound::Expression) -> TempId {
         match &expression.kind {
             ExpressionKind::Literal(value) => {
@@ -283,6 +303,7 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// Lower a bound statement to CFG instructions and control-flow edges.
     fn lower_statement(&mut self, statement: &Statement) {
         if let Some(cause_span) = self.unreachable_after {
             let _ = cause_span;
@@ -435,6 +456,7 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// Lower a call expression used as a statement (discards any result for void calls).
     fn lower_expression_statement(&mut self, statement: &bound::ExpressionStatement) {
         match &statement.expression.kind {
             ExpressionKind::Call(function_symbol, args) => {
@@ -467,6 +489,7 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// Lower an `if` statement to conditional branches and merge blocks.
     fn lower_if(&mut self, if_statement: &bound::IfStatement) {
         let condition_temp = self.lower_expression(&if_statement.condition);
 
@@ -752,6 +775,7 @@ impl<'a> Builder<'a> {
         self.switch_to(exit_block);
     }
 
+    /// Lower each statement in a block. Resets the unreachable tracker on exit.
     fn lower_block(&mut self, block: &bound::Block) {
         for statement in &block.statements {
             self.lower_statement(statement);
@@ -759,6 +783,7 @@ impl<'a> Builder<'a> {
         self.unreachable_after = None;
     }
 
+    /// Returns `true` if the current block has no terminator set yet.
     fn current_block_needs_terminator(&self) -> bool {
         matches!(
             self.blocks[self.current_block.0].terminator,

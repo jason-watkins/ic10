@@ -4,6 +4,9 @@ use crate::ir::cfg::{BlockId, Function, Instruction, Operation, TempId};
 
 use super::utilities::{apply_substitutions, instruction_target, resolve_substitution_chains};
 
+/// Replaces uses of temps defined by simple `Copy` operations or trivial phi
+/// nodes (all arguments identical) with their source, then removes the
+/// now-redundant copy/phi instructions.
 pub(super) fn copy_propagation(function: &mut Function) -> bool {
     let mut substitutions: HashMap<TempId, TempId> = HashMap::new();
 

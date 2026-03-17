@@ -6,6 +6,9 @@ use super::utilities::{
     build_def_map, has_side_effects, instruction_target, instruction_uses, terminator_uses,
 };
 
+/// Removes instructions whose results are never used and that have no side
+/// effects. Uses a reverse-liveness worklist: starts from terminators and
+/// side-effecting instructions and walks backwards through use-def chains.
 pub(super) fn dead_code_elimination(function: &mut Function) -> bool {
     let def_map = build_def_map(function);
     let mut live: HashSet<TempId> = HashSet::new();

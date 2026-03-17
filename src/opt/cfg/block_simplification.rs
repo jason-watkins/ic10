@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use crate::ir::UnaryOperator;
 use crate::ir::cfg::{BlockId, Function, Instruction, Operation, Terminator};
 
+/// Removes basic blocks that are not reachable from the entry block via a
+/// forward traversal of the CFG edges.
 pub(super) fn remove_unreachable_blocks(function: &mut Function) -> bool {
     let reachable = compute_reachable(function);
     let unreachable: HashSet<BlockId> = function

@@ -2,6 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ir::cfg::{Function, Instruction, Operation, TempId, Terminator};
 
+/// Returns the `TempId` defined by this instruction, if any.
+///
+/// Instructions that only produce side effects (stores, sleep, yield) return `None`.
 pub(super) fn instruction_target(instruction: &Instruction) -> Option<TempId> {
     match instruction {
         Instruction::Assign { target, .. }
@@ -21,6 +24,7 @@ pub(super) fn instruction_target(instruction: &Instruction) -> Option<TempId> {
     }
 }
 
+/// Collects all `TempId`s read by this instruction.
 pub(super) fn instruction_uses(instruction: &Instruction) -> Vec<TempId> {
     match instruction {
         Instruction::Assign { operation, .. } => operation_uses(operation),
@@ -55,6 +59,7 @@ fn operation_uses(operation: &Operation) -> Vec<TempId> {
     }
 }
 
+/// Collects all `TempId`s read by this terminator.
 pub(super) fn terminator_uses(terminator: &Terminator) -> Vec<TempId> {
     match terminator {
         Terminator::Branch { condition, .. } => vec![*condition],
@@ -63,6 +68,9 @@ pub(super) fn terminator_uses(terminator: &Terminator) -> Vec<TempId> {
     }
 }
 
+/// Returns `true` if the instruction has observable side effects (device/static
+/// stores, function calls, sleep, yield) and therefore must not be removed by
+/// dead code elimination.
 pub(super) fn has_side_effects(instruction: &Instruction) -> bool {
     matches!(
         instruction,
@@ -76,6 +84,8 @@ pub(super) fn has_side_effects(instruction: &Instruction) -> bool {
     )
 }
 
+/// Builds a map from each defined `TempId` to its definition site as a
+/// `(block_index, instruction_index)` pair.
 pub(super) fn build_def_map(function: &Function) -> HashMap<TempId, (usize, usize)> {
     let mut map = HashMap::new();
     for (block_index, block) in function.blocks.iter().enumerate() {
@@ -88,6 +98,9 @@ pub(super) fn build_def_map(function: &Function) -> HashMap<TempId, (usize, usiz
     map
 }
 
+/// Rewrites every use of a substituted `TempId` in the function according to
+/// the given substitution map, first resolving transitive chains (A→B→C
+/// becomes A→C).
 pub(super) fn apply_substitutions(
     function: &mut Function,
     substitutions: &HashMap<TempId, TempId>,
@@ -104,6 +117,8 @@ pub(super) fn apply_substitutions(
     }
 }
 
+/// Resolves transitive substitution chains so that every key maps directly to
+/// its final target. Cycles are detected and broken.
 pub(super) fn resolve_substitution_chains(
     substitutions: &HashMap<TempId, TempId>,
 ) -> HashMap<TempId, TempId> {
@@ -130,6 +145,8 @@ fn substitute_temp(temp: &mut TempId, substitutions: &HashMap<TempId, TempId>) {
     }
 }
 
+/// Applies the substitution map to every operand `TempId` inside the instruction.
+/// Target (defined) temps are not rewritten.
 pub(super) fn substitute_in_instruction(
     instruction: &mut Instruction,
     substitutions: &HashMap<TempId, TempId>,
@@ -204,6 +221,8 @@ fn substitute_in_operation(operation: &mut Operation, substitutions: &HashMap<Te
     }
 }
 
+/// Applies the substitution map to the condition operand of a `Branch`
+/// terminator or the return value of a `Return`.
 pub(super) fn substitute_in_terminator(
     terminator: &mut Terminator,
     substitutions: &HashMap<TempId, TempId>,

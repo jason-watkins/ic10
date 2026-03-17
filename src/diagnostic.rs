@@ -1,3 +1,5 @@
+//! Compiler diagnostics with source-location tracking and terminal rendering.
+
 use std::fmt;
 
 const RESET: &str = "\x1b[0m";
@@ -20,6 +22,7 @@ pub struct Span {
 }
 
 impl Span {
+    /// Creates a span from byte offset `start` (inclusive) to `end` (exclusive).
     pub fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
@@ -80,19 +83,25 @@ fn caret_len(source: &str, span: Span) -> usize {
 /// Severity level for a diagnostic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
+    /// A hard error that prevents compilation from succeeding.
     Error,
+    /// A non-fatal warning; the program is still compiled.
     Warning,
 }
 
 /// A compiler diagnostic tied to a source location.
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
+    /// Error or warning.
     pub severity: Severity,
+    /// Where in the source this diagnostic points.
     pub span: Span,
+    /// Human-readable description of the problem.
     pub message: String,
 }
 
 impl Diagnostic {
+    /// Creates an error diagnostic at `span` with the given `message`.
     pub fn error(span: Span, message: impl Into<String>) -> Self {
         Self {
             severity: Severity::Error,
@@ -101,6 +110,7 @@ impl Diagnostic {
         }
     }
 
+    /// Creates a warning diagnostic at `span` with the given `message`.
     pub fn warning(span: Span, message: impl Into<String>) -> Self {
         Self {
             severity: Severity::Warning,

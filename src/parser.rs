@@ -1,3 +1,5 @@
+//! Recursive-descent / Pratt parser — builds an AST from the token stream.
+
 use crate::diagnostic::{Diagnostic, Span};
 use crate::ir::ast::{
     AssignStatement, AssignmentTarget, BatchWriteStatement, Block, BreakStatement, CallExpression,
@@ -21,6 +23,7 @@ pub struct Parser {
 }
 
 impl Parser {
+    /// Creates a new parser over the given token list.
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
             tokens,
@@ -1150,6 +1153,7 @@ impl Parser {
     }
 }
 
+/// Returns a human-readable display name for a `TokenKind`, used in error messages.
 fn token_kind_name(kind: &TokenKind) -> &'static str {
     match kind {
         TokenKind::Literal(Literal::I53(_)) => "integer literal",
@@ -1219,6 +1223,8 @@ fn token_kind_name(kind: &TokenKind) -> &'static str {
     }
 }
 
+/// Maps an identifier to the corresponding `Intrinsic`, or `None` if the name
+/// is not a built-in intrinsic function.
 fn name_to_intrinsic(name: &str) -> Option<Intrinsic> {
     match name {
         "abs" => Some(Intrinsic::Abs),

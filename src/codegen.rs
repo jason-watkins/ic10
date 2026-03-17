@@ -1,3 +1,6 @@
+//! IC10 code generation — renders the register-allocated `IC10Program` into the
+//! final text output that the Stationeers IC10 chip can execute.
+
 use std::fmt;
 
 use crate::diagnostic::{Diagnostic, Span};
@@ -74,6 +77,11 @@ impl fmt::Display for BatchMode {
     }
 }
 
+/// Formats an `f64` value for IC10 output.
+///
+/// Whole numbers are printed without a decimal point. NaN becomes `"nan"`,
+/// positive infinity `"pinf"`, negative infinity `"ninf"`. Very long
+/// decimal representations fall back to exponential notation.
 fn format_float(value: f64) -> String {
     if value.is_nan() {
         return "nan".to_string();

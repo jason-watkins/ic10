@@ -1,3 +1,5 @@
+//! Bound (name-resolved, type-annotated) IR — the output of the bind pass.
+
 use crate::diagnostic::Span;
 
 use super::shared::{BatchMode, BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
@@ -43,16 +45,27 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
+    /// Inserts a new symbol and returns its `SymbolId`.
     pub fn push(&mut self, info: SymbolInfo) -> SymbolId {
         let id = SymbolId(self.symbols.len());
         self.symbols.push(info);
         id
     }
 
+    /// Returns a shared reference to the `SymbolInfo` for `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is out of bounds.
     pub fn get(&self, id: SymbolId) -> &SymbolInfo {
         &self.symbols[id.0]
     }
 
+    /// Returns a mutable reference to the `SymbolInfo` for `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is out of bounds.
     pub fn get_mut(&mut self, id: SymbolId) -> &mut SymbolInfo {
         &mut self.symbols[id.0]
     }
@@ -63,17 +76,24 @@ impl SymbolTable {
 pub struct SymbolInfo {
     /// Original source name (for diagnostics and code generation).
     pub name: String,
+    /// Resolved type of this symbol.
     pub ty: Type,
+    /// Whether the symbol was declared with `mut`.
     pub mutable: bool,
+    /// Disambiguates locals, parameters, functions, and statics.
     pub kind: SymbolKind,
 }
 
 /// The kind of a symbol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
+    /// A `let` binding inside a function body.
     Local,
+    /// A function parameter.
     Parameter,
+    /// A user-defined function name.
     Function,
+    /// A `static` variable, indexed by `StaticId` into the program's statics list.
     Static(StaticId),
 }
 
@@ -107,21 +127,34 @@ pub struct Block {
 /// A resolved statement.
 #[derive(Debug, Clone)]
 pub enum Statement {
+    /// `let [mut] name [: Type] = expr;`
     Let(LetStatement),
+    /// Variable or device-field assignment.
     Assign(AssignStatement),
+    /// A call expression used as a statement.
     Expression(ExpressionStatement),
+    /// `if cond { … } [else { … }]`
     If(IfStatement),
+    /// `while cond { … }`
     While(WhileStatement),
+    /// `for var in range { … }`
     For(ForStatement),
+    /// `break ['label];`
     Break(BreakStatement),
+    /// `continue ['label];`
     Continue(ContinueStatement),
+    /// `return [expr];`
     Return(ReturnStatement),
+    /// `yield;`
     Yield(Span),
+    /// `sleep(expr);`
     Sleep(SleepStatement),
+    /// `batch_write(hash_expr, Field, value);`
     BatchWrite(BatchWriteStatement),
 }
 
 impl Statement {
+    /// Returns the source span of this statement, regardless of variant.
     pub fn span(&self) -> Span {
         match self {
             Statement::Let(s) => s.span,
@@ -159,15 +192,15 @@ pub struct AssignStatement {
 /// Resolved assignment target.
 #[derive(Debug, Clone)]
 pub enum AssignmentTarget {
-    Variable {
-        symbol_id: SymbolId,
-        span: Span,
-    },
+    /// Assignment to a local variable or parameter.
+    Variable { symbol_id: SymbolId, span: Span },
+    /// Assignment to a device logic field: `device.Field = expr;`
     DeviceField {
         pin: DevicePin,
         field: String,
         span: Span,
     },
+    /// Assignment to a device slot field: `device.slot(idx).Field = expr;`
     SlotField {
         pin: DevicePin,
         slot: Expression,
@@ -195,7 +228,9 @@ pub struct IfStatement {
 /// The `else` branch.
 #[derive(Debug, Clone)]
 pub enum ElseClause {
+    /// A plain `else { … }` block.
     Block(Block),
+    /// An `else if …` chain.
     If(Box<IfStatement>),
 }
 
@@ -276,25 +311,31 @@ pub enum ExpressionKind {
     Literal(f64),
     /// A reference to a local variable or parameter.
     Variable(SymbolId),
+    /// Binary operation: `lhs op rhs`.
     Binary(BinaryOperator, Box<Expression>, Box<Expression>),
+    /// Unary operation: `op expr`.
     Unary(UnaryOperator, Box<Expression>),
+    /// Type cast: `expr as Type`.
     Cast(Box<Expression>, Type),
+    /// User-defined function call. The `SymbolId` refers to the function symbol.
     Call(SymbolId, Vec<Expression>),
+    /// Intrinsic function call.
     IntrinsicCall(Intrinsic, Vec<Expression>),
-    DeviceRead {
-        pin: DevicePin,
-        field: String,
-    },
+    /// Device logic-field read: `device.Field`.
+    DeviceRead { pin: DevicePin, field: String },
+    /// Device slot-field read: `device.slot(idx).Field`.
     SlotRead {
         pin: DevicePin,
         slot: Box<Expression>,
         field: String,
     },
+    /// Batch read: `batch_read(hash_expr, field, mode)`.
     BatchRead {
         hash_expr: Box<Expression>,
         field: String,
         mode: BatchMode,
     },
+    /// `select(cond, if_true, if_false)`.
     Select {
         condition: Box<Expression>,
         if_true: Box<Expression>,

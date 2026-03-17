@@ -1,3 +1,9 @@
+//! CFG-level optimization passes.
+//!
+//! Each pass is a standalone function taking `&mut Function`. The driver
+//! composes them via `optimize_single_pass` and optionally iterates to
+//! fixpoint at `-O2`.
+
 mod algebraic_simplification;
 mod block_deduplication;
 mod block_simplification;
@@ -45,6 +51,8 @@ pub fn optimize_program(program: &mut Program, level: OptLevel, features: &Featu
     }
 }
 
+/// Run a single iteration of all enabled optimization passes on `function`.
+/// Returns `true` if any pass modified the function.
 fn optimize_single_pass(function: &mut Function, features: &Features) -> bool {
     let mut changed = false;
     if features.sccp {
@@ -82,6 +90,8 @@ fn optimize_single_pass(function: &mut Function, features: &Features) -> bool {
     changed
 }
 
+/// Repeatedly run `optimize_single_pass` until no pass reports a change,
+/// or 100 iterations are exceeded (which triggers a panic).
 fn optimize_to_fixpoint(function: &mut Function, features: &Features) {
     let mut iterations = 0;
     loop {

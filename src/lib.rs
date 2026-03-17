@@ -1,3 +1,9 @@
+//! IC20 compiler library.
+//!
+//! Provides the full compilation pipeline from IC20 source text to IC10 assembly:
+//! lexing, parsing, name resolution, CFG construction, SSA conversion,
+//! optimization, register allocation, and code generation.
+
 pub mod bind;
 pub mod cfg;
 pub mod codegen;

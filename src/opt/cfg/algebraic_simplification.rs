@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use crate::ir::cfg::{Function, Instruction, Operation, TempId};
 use crate::ir::{BinaryOperator, Intrinsic, UnaryOperator};
 
+/// Simplifies algebraic expressions by applying identities such as `x + 0 → x`,
+/// `x * 1 → x`, and `x * 0 → 0`, and by folding constant binary/unary operations.
 pub(super) fn algebraic_simplification(function: &mut Function) -> bool {
     let constants = collect_constants(function);
     let mut changed = false;

@@ -490,7 +490,9 @@ impl IC10Instruction {
 /// A register-allocated function ready for code generation.
 #[derive(Debug)]
 pub struct IC10Function {
+    /// The declared symbol name (e.g. `"main"`, `"heat_control"`).
     pub name: String,
+    /// The flat instruction stream after register allocation and save insertion.
     pub instructions: Vec<IC10Instruction>,
     /// `true` for the `main` function — the program entry point.
     pub is_entry: bool,
@@ -499,5 +501,7 @@ pub struct IC10Function {
 /// The output of the register allocator: a complete, register-assigned IC10 program.
 #[derive(Debug)]
 pub struct IC10Program {
+    /// Functions in declaration order; `main` is sorted to the front before
+    /// label resolution.
     pub functions: Vec<IC10Function>,
 }

@@ -5,10 +5,18 @@ use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
 use super::utilities::instruction_target;
 
+/// Three-valued lattice for sparse conditional constant propagation.
+///
+/// The lattice order is `Top < Constant(v) < Bottom`. `Top` means the value
+/// has not yet been reached, `Constant` means exactly one constant value is
+/// known, and `Bottom` means multiple values are possible.
 #[derive(Debug, Clone, Copy)]
 enum LatticeValue {
+    /// Not yet evaluated — the definition has not been reached.
     Top,
+    /// Exactly one constant value observed so far.
     Constant(f64),
+    /// More than one value possible — not a constant.
     Bottom,
 }
 
@@ -28,6 +36,13 @@ impl LatticeValue {
     }
 }
 
+/// Sparse conditional constant propagation.
+///
+/// Combines constant propagation with unreachable-code elimination in a
+/// single forward dataflow pass over the SSA graph. Uses a two-worklist
+/// algorithm (CFG edges + SSA defs) to iteratively refine lattice values
+/// and block reachability, then rewrites constant temps and removes
+/// instructions in unreachable blocks.
 pub(super) fn sccp(function: &mut Function) -> bool {
     let num_blocks = function.blocks.len();
 

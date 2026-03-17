@@ -1,3 +1,7 @@
+//! SSA construction — transforms the CFG into static single-assignment form
+//! using the standard dominance-frontier algorithm with iterated phi insertion
+//! and variable renaming.
+
 use std::collections::{HashMap, HashSet};
 
 use crate::ir::bound::SymbolId;
@@ -430,16 +434,24 @@ fn rename_variables(
     }
 }
 
+/// Phase of the iterative dominator-tree walk used by `rename_variables`.
 #[derive(Clone, Copy)]
 enum RenamePhase {
+    /// First visit: process this block's instructions and push definitions.
     Enter,
+    /// Recurse into dominator-tree children; on completion, pop definitions.
     Children,
 }
 
+/// A frame on the explicit stack used for the iterative dominator-tree walk.
 struct RenameFrame {
+    /// The block being processed.
     block_id: BlockId,
+    /// Index into the dominator-tree children list for progress tracking.
     child_index: usize,
+    /// Number of definitions pushed per variable, so we can pop them on backtrack.
     definition_counts: HashMap<SymbolId, usize>,
+    /// Current phase of processing for this frame.
     phase: RenamePhase,
 }
 

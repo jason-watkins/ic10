@@ -1,3 +1,5 @@
+//! Control-flow graph IR in SSA form — the primary optimization target.
+
 use std::collections::{HashMap, HashSet};
 
 use super::bound::{StaticId, StaticVariable, SymbolId, SymbolTable};
@@ -14,19 +16,28 @@ pub struct BlockId(pub usize);
 /// A complete CFG program — one `Function` per bound function declaration.
 #[derive(Debug)]
 pub struct Program {
+    /// All functions in the program.
     pub functions: Vec<Function>,
+    /// Top-level static variables.
     pub statics: Vec<StaticVariable>,
+    /// Symbol table carried forward from the bind pass.
     pub symbols: SymbolTable,
 }
 
 /// A single function lowered to a control-flow graph.
 #[derive(Debug)]
 pub struct Function {
+    /// The function's source name.
     pub name: String,
+    /// Symbol table entry for this function.
     pub symbol_id: SymbolId,
+    /// The symbols for each parameter, in declaration order.
     pub parameters: Vec<SymbolId>,
+    /// `None` for void functions.
     pub return_type: Option<Type>,
+    /// All basic blocks belonging to this function.
     pub blocks: Vec<BasicBlock>,
+    /// The entry block's id.
     pub entry: BlockId,
     /// `variable_definitions[symbol_id]` is the set of `(TempId, BlockId)` pairs
     /// that define that variable. Used by SSA construction.
@@ -113,11 +124,17 @@ pub enum BlockRole {
 /// A basic block: a linear sequence of instructions ending with a terminator.
 #[derive(Debug)]
 pub struct BasicBlock {
+    /// This block's unique identifier.
     pub id: BlockId,
+    /// Structural role (entry, loop header, etc.) used for label generation.
     pub role: BlockRole,
+    /// The linear sequence of instructions in this block.
     pub instructions: Vec<Instruction>,
+    /// How control leaves this block.
     pub terminator: Terminator,
+    /// Blocks that jump to this block.
     pub predecessors: Vec<BlockId>,
+    /// Blocks this block can jump to.
     pub successors: Vec<BlockId>,
 }
 

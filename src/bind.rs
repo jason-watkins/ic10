@@ -1,3 +1,6 @@
+//! Name resolution and type checking — transforms the untyped AST into the
+//! bound IR with resolved symbols, type annotations, and constant folding.
+
 use std::collections::HashMap;
 
 use crate::crc32::crc32;
@@ -17,32 +20,49 @@ use crate::ir::bound::{
 };
 use crate::ir::{BinaryOperator, DevicePin, Intrinsic, Type, UnaryOperator};
 
-/// An entry in the scope stack.
+/// An entry in the scope stack, representing one binding visible at a given point.
 #[derive(Clone)]
 enum ScopeEntry {
+    /// A local variable, parameter, or function — resolved via `SymbolId`.
     Symbol(SymbolId),
+    /// A `const` declaration, already folded to a value and type.
     Constant(f64, Type),
+    /// A `device` declaration bound to a hardware pin.
     Device(DevicePin),
+    /// A `static` variable, referencing its `SymbolId` in the symbol table.
     Static(SymbolId),
 }
 
-/// The compile-time signature of a function, recorded during the top-level pre-pass.
+/// The compile-time signature of a function, recorded during the top-level pre-pass
+/// so that function calls can be type-checked before the callee's body is bound.
 struct FunctionSignature {
+    /// Symbol table entry for this function.
     symbol_id: SymbolId,
+    /// The function's return type (`Unit` for void functions).
     return_type: Type,
+    /// Types of each parameter, in declaration order.
     parameter_types: Vec<Type>,
 }
 
+/// The binder: performs name resolution, type checking, and constant folding,
+/// transforming an `ast::Program` into a `bound::Program`.
 struct Binder {
+    /// Global symbol table shared across all scopes.
     symbols: SymbolTable,
+    /// Stack of lexical scopes (innermost last).
     scopes: Vec<HashMap<String, ScopeEntry>>,
+    /// Pre-registered function signatures for forward-reference support.
     function_signatures: HashMap<String, FunctionSignature>,
+    /// Bound static variable declarations.
     statics: Vec<StaticVariable>,
+    /// Bound initializer expressions for static variables.
     static_initializers: Vec<StaticInitializer>,
+    /// Accumulated diagnostics (errors and warnings).
     diagnostics: Vec<Diagnostic>,
 }
 
 impl Binder {
+    /// Creates a new binder with empty state.
     fn new() -> Self {
         Self {
             symbols: SymbolTable::default(),
@@ -54,20 +74,25 @@ impl Binder {
         }
     }
 
+    /// Push a new lexical scope onto the scope stack.
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
     }
 
+    /// Pop the innermost lexical scope.
     fn pop_scope(&mut self) {
         self.scopes.pop();
     }
 
+    /// Define a name in the current (innermost) scope.
     fn define(&mut self, name: String, entry: ScopeEntry) {
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(name, entry);
         }
     }
 
+    /// Look up a name through the scope stack, from innermost to outermost.
+    /// Returns `None` if the name is not defined in any enclosing scope.
     fn lookup(&self, name: &str) -> Option<&ScopeEntry> {
         for scope in self.scopes.iter().rev() {
             if let Some(entry) = scope.get(name) {
@@ -77,14 +102,17 @@ impl Binder {
         None
     }
 
+    /// Allocate a new symbol in the symbol table and return its `SymbolId`.
     fn allocate_symbol(&mut self, info: SymbolInfo) -> SymbolId {
         self.symbols.push(info)
     }
 
+    /// Emit an error diagnostic.
     fn error(&mut self, span: Span, message: impl Into<String>) {
         self.diagnostics.push(Diagnostic::error(span, message));
     }
 
+    /// Emit a warning diagnostic.
     fn warning(&mut self, span: Span, message: impl Into<String>) {
         self.diagnostics.push(Diagnostic::warning(span, message));
     }
@@ -309,6 +337,8 @@ impl Binder {
         }
     }
 
+    /// Bind a function declaration: resolve parameters, bind the body, and
+    /// return the fully resolved `FunctionDeclaration`.
     fn bind_function(&mut self, ast_fn: &AstFunctionDeclaration) -> FunctionDeclaration {
         let sig = self.function_signatures.get(&ast_fn.name).unwrap();
         let function_symbol_id = sig.symbol_id;
@@ -346,6 +376,7 @@ impl Binder {
         }
     }
 
+    /// Bind a block: push a new scope, bind each statement, pop the scope.
     fn bind_block(&mut self, block: &AstBlock, return_type: Type) -> Block {
         self.push_scope();
         let mut statements = Vec::new();
@@ -360,6 +391,10 @@ impl Binder {
         }
     }
 
+    /// Bind a single statement, performing type checking on all sub-expressions.
+    ///
+    /// `return_type` is the enclosing function's return type, used to validate
+    /// `return` statements.
     fn bind_statement(&mut self, stmt: &AstStatement, return_type: Type) -> Statement {
         match stmt {
             AstStatement::Let(s) => {
@@ -593,6 +628,9 @@ impl Binder {
         }
     }
 
+    /// Bind an assignment target, checking mutability and type compatibility.
+    ///
+    /// `value_type` is the type of the right-hand side of the assignment.
     fn bind_assignment_target(
         &mut self,
         target: &AstAssignmentTarget,
@@ -711,6 +749,8 @@ impl Binder {
         }
     }
 
+    /// Bind an `if` statement: type-check the condition (must be `bool`),
+    /// bind both branches, and bind any `else` clause.
     fn bind_if_statement(&mut self, s: &AstIfStatement, return_type: Type) -> IfStatement {
         let condition = self.bind_expression(&s.cond);
         if condition.ty != Type::Bool {
@@ -732,6 +772,7 @@ impl Binder {
         }
     }
 
+    /// Bind an `else` clause (either a block or a chained `else if`).
     fn bind_else_clause(&mut self, else_: &AstElseClause, return_type: Type) -> ElseClause {
         match else_ {
             AstElseClause::Block(block) => ElseClause::Block(self.bind_block(block, return_type)),
@@ -741,6 +782,8 @@ impl Binder {
         }
     }
 
+    /// Bind an expression: resolve names, type-check, and return the
+    /// resolved `Expression` with its computed type.
     fn bind_expression(&mut self, expr: &AstExpression) -> Expression {
         match &expr.kind {
             AstExpressionKind::Literal(lit) => {
@@ -1047,6 +1090,8 @@ impl Binder {
         }
     }
 
+    /// Validate that the program has exactly one `main` function with no
+    /// parameters and no return type.
     fn validate_main(&mut self, program: &AstProgram) {
         let main_fns: Vec<_> = program
             .items
@@ -1077,6 +1122,8 @@ impl Binder {
     }
 }
 
+/// Infer the result type of a binary operation, emitting diagnostics for
+/// type mismatches. Returns the result type.
 fn infer_binary_type(
     op: BinaryOperator,
     left_type: Type,
@@ -1171,6 +1218,8 @@ fn infer_binary_type(
     }
 }
 
+/// Infer the result type of a unary operation, emitting diagnostics for
+/// type mismatches.
 fn infer_unary_type(
     op: UnaryOperator,
     operand_type: Type,
@@ -1208,6 +1257,7 @@ fn infer_unary_type(
     }
 }
 
+/// Validate a type cast and emit diagnostics for invalid or identity casts.
 fn validate_cast(src_type: Type, target_type: Type, span: Span, diagnostics: &mut Vec<Diagnostic>) {
     match (src_type, target_type) {
         (a, b) if a == b => {
@@ -1235,6 +1285,8 @@ fn validate_cast(src_type: Type, target_type: Type, span: Span, diagnostics: &mu
     }
 }
 
+/// Evaluate a binary operation on two constant `f64` values at compile time.
+/// Returns `None` and emits a diagnostic if the operation is invalid for the given type.
 fn eval_binary_const(
     op: BinaryOperator,
     lv: f64,
@@ -1287,6 +1339,8 @@ fn eval_binary_const(
     })
 }
 
+/// Returns the result type of an intrinsic function (always `F64` except
+/// `IsNan` which returns `Bool`).
 fn intrinsic_return_type(intrinsic: Intrinsic) -> Type {
     match intrinsic {
         Intrinsic::IsNan => Type::Bool,
@@ -1294,6 +1348,7 @@ fn intrinsic_return_type(intrinsic: Intrinsic) -> Type {
     }
 }
 
+/// Returns the expected number of arguments for an intrinsic function.
 fn intrinsic_param_count(intrinsic: Intrinsic) -> usize {
     use Intrinsic::*;
     match intrinsic {

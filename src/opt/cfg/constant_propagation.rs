@@ -5,6 +5,9 @@ use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
 use super::utilities::instruction_target;
 
+/// Forward pass that propagates known constant values through the function,
+/// folding constant binary, unary, cast, and select operations when all
+/// operands are compile-time constants.
 pub(super) fn constant_propagation(function: &mut Function) -> bool {
     let mut constants: HashMap<TempId, f64> = HashMap::new();
     let mut changed = false;

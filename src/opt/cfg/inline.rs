@@ -7,6 +7,12 @@ use crate::ir::cfg::{
 
 use super::utilities::{instruction_target, substitute_in_instruction, substitute_in_terminator};
 
+/// Inlines eligible non-recursive function calls to reduce call overhead.
+///
+/// A function is inlineable if it does not participate in any call cycle.
+/// Inlining clones the callee's CFG into the caller, substituting actual
+/// arguments for parameters and redirecting the callee's return to the
+/// caller's continuation block.
 pub(super) fn inline_functions(program: &mut Program) {
     let call_graph = build_call_graph(program);
 

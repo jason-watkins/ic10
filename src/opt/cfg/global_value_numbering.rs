@@ -5,6 +5,10 @@ use crate::ir::{BinaryOperator, Type, UnaryOperator};
 
 use super::utilities::apply_substitutions;
 
+/// Eliminates redundant computations using dominator-scoped, hash-based value
+/// numbering. Walks the dominator tree and maps each normalized operation to a
+/// canonical temp; duplicate operations are replaced with copies of the
+/// canonical temp.
 pub(super) fn global_value_numbering(function: &mut Function) -> bool {
     let mut substitutions: HashMap<TempId, TempId> = HashMap::new();
     let mut value_table: HashMap<ValueExpression, TempId> = HashMap::new();

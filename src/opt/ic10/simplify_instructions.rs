@@ -1,5 +1,8 @@
 use crate::regalloc::ic10::{IC10Instruction, Operand};
 
+/// Eliminates self-moves (`move rX rX`) and rewrites arithmetic identity
+/// patterns (e.g. `add rX rY 0` → `move rX rY`) on the flat IC10 instruction
+/// stream.
 pub(super) fn simplify_instructions(instructions: &mut Vec<IC10Instruction>) {
     eliminate_self_moves(instructions);
     simplify_arithmetic_identities(instructions);

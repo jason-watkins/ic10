@@ -76,6 +76,7 @@ impl FromStr for FeatureToggle {
     }
 }
 
+/// Applies CLI feature toggles (`-f <name>` / `-f no-<name>`) to the features set.
 fn apply_feature_toggles(features: &mut Features, toggles: &[FeatureToggle]) {
     for toggle in toggles {
         match toggle.feature {
@@ -283,12 +284,14 @@ fn main() {
     }
 }
 
+/// Prints all diagnostics to stderr.
 fn emit_diagnostics(diagnostics: &[Diagnostic], source: &str, filename: &str) {
     for diagnostic in diagnostics {
         eprintln!("{}", diagnostic.display(source, filename));
     }
 }
 
+/// Prints all diagnostics to stderr and returns `true` if any are errors.
 fn emit_diagnostics_and_check_errors(
     diagnostics: &[Diagnostic],
     source: &str,
@@ -304,6 +307,7 @@ fn emit_diagnostics_and_check_errors(
     has_errors
 }
 
+/// Filters diagnostics for warnings and appends them to `warnings`.
 fn collect_warnings(diagnostics: &[Diagnostic], warnings: &mut Vec<Diagnostic>) {
     for diagnostic in diagnostics {
         if diagnostic.severity == Severity::Warning {
