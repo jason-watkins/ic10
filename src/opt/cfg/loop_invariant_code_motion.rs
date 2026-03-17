@@ -6,7 +6,7 @@ use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator,
 };
 
-use super::utilities::{build_def_map, instruction_dest, instruction_uses};
+use super::utilities::{build_def_map, instruction_target, instruction_uses};
 
 pub(super) fn loop_invariant_code_motion(function: &mut Function) -> bool {
     let loops = find_natural_loops(function);
@@ -50,8 +50,6 @@ fn find_natural_loops(function: &Function) -> Vec<NaturalLoop> {
 
     loops
 }
-
-
 
 fn compute_loop_body(
     function: &Function,
@@ -108,11 +106,11 @@ fn hoist_invariants(function: &mut Function, natural_loop: &NaturalLoop) -> bool
         let mut progress = false;
         for &block_id in &natural_loop.blocks {
             for instruction in &function.blocks[block_id.0].instructions {
-                let dest = match instruction_dest(instruction) {
+                let target = match instruction_target(instruction) {
                     Some(d) => d,
                     None => continue,
                 };
-                if invariant_temps.contains(&dest) {
+                if invariant_temps.contains(&target) {
                     continue;
                 }
                 if !is_hoistable(instruction, has_calls, &written_statics) {
@@ -129,7 +127,7 @@ fn hoist_invariants(function: &mut Function, natural_loop: &NaturalLoop) -> bool
                         }
                     });
                 if all_operands_invariant {
-                    invariant_temps.insert(dest);
+                    invariant_temps.insert(target);
                     progress = true;
                 }
             }
@@ -151,7 +149,9 @@ fn hoist_invariants(function: &mut Function, natural_loop: &NaturalLoop) -> bool
             continue;
         }
         for instruction in &function.blocks[block_index].instructions {
-            if let Some(dest) = instruction_dest(instruction) && invariant_temps.contains(&dest) {
+            if let Some(target) = instruction_target(instruction)
+                && invariant_temps.contains(&target)
+            {
                 hoisted.push(instruction.clone());
             }
         }
@@ -163,8 +163,8 @@ fn hoist_invariants(function: &mut Function, natural_loop: &NaturalLoop) -> bool
         }
         function.blocks[block_index]
             .instructions
-            .retain(|instruction| match instruction_dest(instruction) {
-                Some(dest) => !invariant_temps.contains(&dest),
+            .retain(|instruction| match instruction_target(instruction) {
+                Some(target) => !invariant_temps.contains(&target),
                 None => true,
             });
     }

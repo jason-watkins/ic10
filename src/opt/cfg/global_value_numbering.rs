@@ -37,13 +37,13 @@ fn walk_dominator_tree(
     let mut added: Vec<ValueExpression> = Vec::new();
 
     for instruction in &block.instructions {
-        if let Instruction::Assign { dest, operation } = instruction
+        if let Instruction::Assign { target, operation } = instruction
             && let Some(expression) = operation_to_value_expression(operation)
         {
             if let Some(&leader) = value_table.get(&expression) {
-                substitutions.insert(*dest, leader);
+                substitutions.insert(*target, leader);
             } else {
-                value_table.insert(expression.clone(), *dest);
+                value_table.insert(expression.clone(), *target);
                 added.push(expression);
             }
         }

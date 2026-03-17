@@ -127,8 +127,8 @@ fn block_uses_variable_before_def(
                 return true;
             }
         }
-        if let Some(dest) = instruction_dest(instruction)
-            && definition_map.get(&dest) == Some(&variable)
+        if let Some(target) = instruction_target(instruction)
+            && definition_map.get(&target) == Some(&variable)
         {
             return false;
         }
@@ -148,8 +148,8 @@ fn block_defines_variable(
     definition_map: &HashMap<TempId, SymbolId>,
 ) -> bool {
     for instruction in &block.instructions {
-        if let Some(dest) = instruction_dest(instruction)
-            && definition_map.get(&dest) == Some(&variable)
+        if let Some(target) = instruction_target(instruction)
+            && definition_map.get(&target) == Some(&variable)
         {
             return true;
         }
@@ -200,16 +200,16 @@ fn terminator_uses(terminator: &Terminator) -> Vec<TempId> {
 }
 
 /// Get the TempId defined (written) by an instruction, if any.
-fn instruction_dest(instruction: &Instruction) -> Option<TempId> {
+fn instruction_target(instruction: &Instruction) -> Option<TempId> {
     match instruction {
-        Instruction::Assign { dest, .. }
-        | Instruction::Phi { dest, .. }
-        | Instruction::LoadDevice { dest, .. }
-        | Instruction::LoadSlot { dest, .. }
-        | Instruction::BatchRead { dest, .. }
-        | Instruction::IntrinsicCall { dest, .. } => Some(*dest),
-        Instruction::Call { dest, .. } => *dest,
-        Instruction::LoadStatic { dest, .. } => Some(*dest),
+        Instruction::Assign { target, .. }
+        | Instruction::Phi { target, .. }
+        | Instruction::LoadDevice { target, .. }
+        | Instruction::LoadSlot { target, .. }
+        | Instruction::BatchRead { target, .. }
+        | Instruction::IntrinsicCall { target, .. } => Some(*target),
+        Instruction::Call { target, .. } => *target,
+        Instruction::LoadStatic { target, .. } => Some(*target),
         Instruction::StoreDevice { .. }
         | Instruction::StoreSlot { .. }
         | Instruction::StoreStatic { .. }
@@ -224,7 +224,7 @@ fn instruction_dest(instruction: &Instruction) -> Option<TempId> {
 /// For each variable with definitions in multiple blocks, compute the IDF
 /// and insert a `Phi` instruction (with empty args) at each frontier block
 /// where the variable is live-in. Returns a mapping from (BlockId, SymbolId)
-/// to the phi's destination TempId, used during renaming to fill in args.
+/// to the phi's target TempId, used during renaming to fill in args.
 fn place_phi_functions(
     function: &mut Function,
     variables: &HashSet<SymbolId>,
@@ -268,17 +268,17 @@ fn place_phi_functions(
                     continue;
                 }
 
-                let phi_dest = function.fresh_temp();
+                let phi_target = function.fresh_temp();
 
                 function.blocks[frontier_block.0].instructions.insert(
                     0,
                     Instruction::Phi {
-                        dest: phi_dest,
+                        target: phi_target,
                         args: Vec::new(),
                     },
                 );
 
-                phi_defs.insert((frontier_block, variable), phi_dest);
+                phi_defs.insert((frontier_block, variable), phi_target);
                 has_phi.insert(frontier_block);
 
                 if !ever_on_worklist.contains(&frontier_block) {
@@ -295,7 +295,7 @@ fn place_phi_functions(
 /// Rename variable uses by walking the dominator tree in pre-order.
 ///
 /// For each variable, maintains a stack of TempIds representing the current
-/// reaching definition. At each definition (including phi destinations),
+/// reaching definition. At each definition (including phi targets),
 /// pushes the TempId. At each use of a variable's def-temp, replaces it
 /// with the stack's top. At successor-block phis, fills in the argument
 /// for the current predecessor block.
@@ -306,7 +306,7 @@ fn rename_variables(
 ) {
     let children = function.dominator_tree_children();
 
-    // Build an extended definition map that includes phi destinations.
+    // Build an extended definition map that includes phi targets.
     let mut extended_definition_map = definition_map.clone();
     for (&(_block, variable), &phi_temp) in phi_defs {
         extended_definition_map.insert(phi_temp, variable);
@@ -338,10 +338,10 @@ fn rename_variables(
 
                 // 1. Process phi instructions: each phi defines a new version.
                 for instruction in &function.blocks[block_id.0].instructions {
-                    if let Instruction::Phi { dest, .. } = instruction
-                        && let Some(&variable) = extended_definition_map.get(dest)
+                    if let Instruction::Phi { target, .. } = instruction
+                        && let Some(&variable) = extended_definition_map.get(target)
                     {
-                        stacks.get_mut(&variable).unwrap().push(*dest);
+                        stacks.get_mut(&variable).unwrap().push(*target);
                         *def_counts.entry(variable).or_default() += 1;
                     }
                 }
@@ -354,10 +354,10 @@ fn rename_variables(
                     }
                     rename_operands(instruction, &extended_definition_map, &stacks);
 
-                    if let Some(dest) = instruction_dest(instruction)
-                        && let Some(&variable) = extended_definition_map.get(&dest)
+                    if let Some(target) = instruction_target(instruction)
+                        && let Some(&variable) = extended_definition_map.get(&target)
                     {
-                        stacks.get_mut(&variable).unwrap().push(dest);
+                        stacks.get_mut(&variable).unwrap().push(target);
                         *def_counts.entry(variable).or_default() += 1;
                     }
                 }
@@ -373,8 +373,8 @@ fn rename_variables(
                 let successors: Vec<BlockId> = block.successors.clone();
                 for &successor in &successors {
                     for instruction in &mut function.blocks[successor.0].instructions {
-                        if let Instruction::Phi { dest, args } = instruction
-                            && let Some(&variable) = extended_definition_map.get(dest)
+                        if let Instruction::Phi { target, args } = instruction
+                            && let Some(&variable) = extended_definition_map.get(target)
                             && let Some(stack) = stacks.get(&variable)
                             && let Some(&current) = stack.last()
                         {
@@ -442,8 +442,6 @@ struct RenameFrame {
     definition_counts: HashMap<SymbolId, usize>,
     phase: RenamePhase,
 }
-
-
 
 /// Replace all variable-definition-temp operands in an instruction with the
 /// current reaching definition from the per-variable stacks.
@@ -581,7 +579,7 @@ mod tests {
 
     struct PhiRecord {
         block: BlockId,
-        dest: TempId,
+        target: TempId,
         args: Vec<(TempId, BlockId)>,
     }
 
@@ -589,10 +587,10 @@ mod tests {
         let mut phis = Vec::new();
         for block in &function.blocks {
             for instruction in &block.instructions {
-                if let Instruction::Phi { dest, args } = instruction {
+                if let Instruction::Phi { target, args } = instruction {
                     phis.push(PhiRecord {
                         block: block.id,
-                        dest: *dest,
+                        target: *target,
                         args: args.clone(),
                     });
                 }
@@ -759,16 +757,16 @@ mod tests {
         let phis = collect_phis(main);
         assert!(!phis.is_empty());
         let first_phi = &phis[0];
-        // Find a Copy instruction in the merge block that uses the phi dest.
+        // Find a Copy instruction in the merge block that uses the phi target.
         let merge_block = &main.blocks[first_phi.block.0];
         let uses_phi = merge_block.instructions.iter().any(|instruction| {
             let uses = instruction_uses(instruction);
-            uses.contains(&first_phi.dest)
+            uses.contains(&first_phi.target)
         });
         assert!(
             uses_phi,
-            "expected some instruction in merge block to use phi dest {:?}",
-            first_phi.dest
+            "expected some instruction in merge block to use phi target {:?}",
+            first_phi.target
         );
     }
 
@@ -856,8 +854,8 @@ mod tests {
         let mut defs: HashMap<TempId, usize> = HashMap::new();
         for block in &main.blocks {
             for instruction in &block.instructions {
-                if let Some(dest) = instruction_dest(instruction) {
-                    *defs.entry(dest).or_default() += 1;
+                if let Some(target) = instruction_target(instruction) {
+                    *defs.entry(target).or_default() += 1;
                 }
             }
         }

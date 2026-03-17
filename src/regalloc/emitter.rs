@@ -64,11 +64,11 @@ fn build_constant_values(function: &Function) -> HashMap<TempId, f64> {
     for block in &function.blocks {
         for instruction in &block.instructions {
             if let Instruction::Assign {
-                dest,
+                target,
                 operation: Operation::Constant(value),
             } = instruction
             {
-                constants.insert(*dest, *value);
+                constants.insert(*target, *value);
             }
         }
     }
@@ -82,13 +82,13 @@ fn build_constant_values(function: &Function) -> HashMap<TempId, f64> {
 /// consecutive underscores are collapsed and dropped.
 fn snake_case_to_camel_case(name: &str) -> String {
     let mut result = String::with_capacity(name.len());
-    let mut capitalise_next = false;
+    let mut capitalize_next = false;
     for character in name.chars() {
         if character == '_' {
-            capitalise_next = true;
-        } else if capitalise_next {
+            capitalize_next = true;
+        } else if capitalize_next {
             result.extend(character.to_uppercase());
-            capitalise_next = false;
+            capitalize_next = false;
         } else {
             result.push(character);
         }
@@ -271,15 +271,15 @@ impl<'a> Emitter<'a> {
 
     fn lower_instruction(&mut self, instruction: &Instruction, position: LinearPosition) {
         match instruction {
-            Instruction::Assign { dest, operation } => {
-                self.lower_assign(*dest, operation);
+            Instruction::Assign { target, operation } => {
+                self.lower_assign(*target, operation);
             }
             Instruction::Phi { .. } => {
                 unreachable!("phi instructions should have been deconstructed before emission");
             }
-            Instruction::LoadDevice { dest, pin, field } => {
+            Instruction::LoadDevice { target, pin, field } => {
                 self.emit(IC10Instruction::Load(
-                    self.register_of(*dest),
+                    self.register_of(*target),
                     *pin,
                     field.clone(),
                 ));
@@ -292,13 +292,13 @@ impl<'a> Emitter<'a> {
                 ));
             }
             Instruction::LoadSlot {
-                dest,
+                target,
                 pin,
                 slot,
                 field,
             } => {
                 self.emit(IC10Instruction::LoadSlot(
-                    self.register_of(*dest),
+                    self.register_of(*target),
                     *pin,
                     self.operand_of(*slot),
                     field.clone(),
@@ -318,13 +318,13 @@ impl<'a> Emitter<'a> {
                 ));
             }
             Instruction::BatchRead {
-                dest,
+                target,
                 hash,
                 field,
                 mode,
             } => {
                 self.emit(IC10Instruction::BatchLoad {
-                    dest: self.register_of(*dest),
+                    target: self.register_of(*target),
                     device_hash: self.operand_of(*hash),
                     logic_type: field.clone(),
                     batch_mode: *mode,
@@ -338,18 +338,18 @@ impl<'a> Emitter<'a> {
                 });
             }
             Instruction::Call {
-                dest,
+                target,
                 function,
                 args,
             } => {
-                self.lower_call(*dest, *function, args, position);
+                self.lower_call(*target, *function, args, position);
             }
             Instruction::IntrinsicCall {
-                dest,
+                target,
                 function,
                 args,
             } => {
-                self.lower_intrinsic_call(*dest, *function, args);
+                self.lower_intrinsic_call(*target, *function, args);
             }
             Instruction::Sleep { duration } => {
                 self.emit(IC10Instruction::Sleep(self.operand_of(*duration)));
@@ -357,10 +357,10 @@ impl<'a> Emitter<'a> {
             Instruction::Yield => {
                 self.emit(IC10Instruction::Yield);
             }
-            Instruction::LoadStatic { dest, static_id } => {
+            Instruction::LoadStatic { target, static_id } => {
                 let address = self.statics[static_id.0].address;
                 self.emit(IC10Instruction::Get(
-                    self.register_of(*dest),
+                    self.register_of(*target),
                     DevicePin::Db,
                     Operand::Literal(address as f64),
                 ));
@@ -375,13 +375,13 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn lower_assign(&mut self, dest: TempId, operation: &Operation) {
-        let dest_register = self.register_of(dest);
+    fn lower_assign(&mut self, target: TempId, operation: &Operation) {
+        let target_register = self.register_of(target);
         match operation {
             Operation::Parameter { .. } => {
                 // The caller already deposited the argument in the pre-coloured register;
                 // no instruction is needed.
-                let _ = dest_register;
+                let _ = target_register;
             }
             Operation::Constant(_) => {
                 // Inlined as a literal at every use site via `operand_of`; no register
@@ -389,8 +389,8 @@ impl<'a> Emitter<'a> {
             }
             Operation::Copy(source) => {
                 let source_operand = self.operand_of(*source);
-                if source_operand != Operand::Register(dest_register) {
-                    self.emit(IC10Instruction::Move(dest_register, source_operand));
+                if source_operand != Operand::Register(target_register) {
+                    self.emit(IC10Instruction::Move(target_register, source_operand));
                 }
             }
             Operation::Binary {
@@ -398,17 +398,17 @@ impl<'a> Emitter<'a> {
                 left,
                 right,
             } => {
-                self.lower_binary(dest_register, *operator, *left, *right);
+                self.lower_binary(target_register, *operator, *left, *right);
             }
             Operation::Unary { operator, operand } => {
-                self.lower_unary(dest_register, *operator, *operand);
+                self.lower_unary(target_register, *operator, *operand);
             }
             Operation::Cast {
                 operand,
                 target_type,
                 ..
             } => {
-                self.lower_cast(dest_register, *operand, target_type);
+                self.lower_cast(target_register, *operand, target_type);
             }
             Operation::Select {
                 condition,
@@ -416,7 +416,7 @@ impl<'a> Emitter<'a> {
                 if_false,
             } => {
                 self.emit(IC10Instruction::Select(
-                    dest_register,
+                    target_register,
                     self.operand_of(*condition),
                     self.operand_of(*if_true),
                     self.operand_of(*if_false),
@@ -427,7 +427,7 @@ impl<'a> Emitter<'a> {
 
     fn lower_binary(
         &mut self,
-        dest: Register,
+        target: Register,
         operator: BinaryOperator,
         left: TempId,
         right: TempId,
@@ -435,107 +435,104 @@ impl<'a> Emitter<'a> {
         let left_operand = self.operand_of(left);
         let right_operand = self.operand_of(right);
         let instruction = match operator {
-            BinaryOperator::Add => IC10Instruction::Add(dest, left_operand, right_operand),
-            BinaryOperator::Sub => IC10Instruction::Sub(dest, left_operand, right_operand),
-            BinaryOperator::Mul => IC10Instruction::Mul(dest, left_operand, right_operand),
-            BinaryOperator::Div => IC10Instruction::Div(dest, left_operand, right_operand),
-            BinaryOperator::Rem => IC10Instruction::Mod(dest, left_operand, right_operand),
-            BinaryOperator::Eq => IC10Instruction::Seq(dest, left_operand, right_operand),
-            BinaryOperator::Ne => IC10Instruction::Sne(dest, left_operand, right_operand),
-            BinaryOperator::Lt => IC10Instruction::Slt(dest, left_operand, right_operand),
-            BinaryOperator::Gt => IC10Instruction::Sgt(dest, left_operand, right_operand),
-            BinaryOperator::Le => IC10Instruction::Sle(dest, left_operand, right_operand),
-            BinaryOperator::Ge => IC10Instruction::Sge(dest, left_operand, right_operand),
-            BinaryOperator::And => {
-                // Logical AND: `a && b` → `a * b` (both are 0 or 1)
-                IC10Instruction::Mul(dest, left_operand, right_operand)
-            }
+            BinaryOperator::Add => IC10Instruction::Add(target, left_operand, right_operand),
+            BinaryOperator::Sub => IC10Instruction::Sub(target, left_operand, right_operand),
+            BinaryOperator::Mul => IC10Instruction::Mul(target, left_operand, right_operand),
+            BinaryOperator::Div => IC10Instruction::Div(target, left_operand, right_operand),
+            BinaryOperator::Rem => IC10Instruction::Mod(target, left_operand, right_operand),
+            BinaryOperator::Eq => IC10Instruction::Seq(target, left_operand, right_operand),
+            BinaryOperator::Ne => IC10Instruction::Sne(target, left_operand, right_operand),
+            BinaryOperator::Lt => IC10Instruction::Slt(target, left_operand, right_operand),
+            BinaryOperator::Gt => IC10Instruction::Sgt(target, left_operand, right_operand),
+            BinaryOperator::Le => IC10Instruction::Sle(target, left_operand, right_operand),
+            BinaryOperator::Ge => IC10Instruction::Sge(target, left_operand, right_operand),
+            BinaryOperator::And => IC10Instruction::Mul(target, left_operand, right_operand),
             BinaryOperator::Or => {
-                // Logical OR: `a || b` → `sne dest (a + b) 0` but simpler: `or` works
+                // Logical OR: `a || b` → `sne target (a + b) 0` but simpler: `or` works
                 // since booleans are 0/1 and bitwise OR gives correct result
-                IC10Instruction::Or(dest, left_operand, right_operand)
+                IC10Instruction::Or(target, left_operand, right_operand)
             }
-            BinaryOperator::BitAnd => IC10Instruction::And(dest, left_operand, right_operand),
-            BinaryOperator::BitOr => IC10Instruction::Or(dest, left_operand, right_operand),
-            BinaryOperator::BitXor => IC10Instruction::Xor(dest, left_operand, right_operand),
-            BinaryOperator::Shl => IC10Instruction::Sll(dest, left_operand, right_operand),
-            BinaryOperator::Shr => IC10Instruction::Sra(dest, left_operand, right_operand),
+            BinaryOperator::BitAnd => IC10Instruction::And(target, left_operand, right_operand),
+            BinaryOperator::BitOr => IC10Instruction::Or(target, left_operand, right_operand),
+            BinaryOperator::BitXor => IC10Instruction::Xor(target, left_operand, right_operand),
+            BinaryOperator::Shl => IC10Instruction::Sll(target, left_operand, right_operand),
+            BinaryOperator::Shr => IC10Instruction::Sra(target, left_operand, right_operand),
         };
         self.emit(instruction);
     }
 
-    fn lower_unary(&mut self, dest: Register, operator: UnaryOperator, operand: TempId) {
+    fn lower_unary(&mut self, target: Register, operator: UnaryOperator, operand: TempId) {
         let operand_value = self.operand_of(operand);
         match operator {
             UnaryOperator::Neg => {
                 self.emit(IC10Instruction::Sub(
-                    dest,
+                    target,
                     Operand::Literal(0.0),
                     operand_value,
                 ));
             }
             UnaryOperator::Not => {
-                self.emit(IC10Instruction::Seqz(dest, operand_value));
+                self.emit(IC10Instruction::Seqz(target, operand_value));
             }
             UnaryOperator::BitNot => {
-                self.emit(IC10Instruction::Not(dest, operand_value));
+                self.emit(IC10Instruction::Not(target, operand_value));
             }
         }
     }
 
-    fn lower_cast(&mut self, dest: Register, operand: TempId, target_type: &Type) {
+    fn lower_cast(&mut self, target: Register, operand: TempId, target_type: &Type) {
         let source_operand = self.operand_of(operand);
         match target_type {
             Type::I53 => {
-                self.emit(IC10Instruction::Trunc(dest, source_operand));
+                self.emit(IC10Instruction::Trunc(target, source_operand));
             }
             _ => {
-                if source_operand != Operand::Register(dest) {
-                    self.emit(IC10Instruction::Move(dest, source_operand));
+                if source_operand != Operand::Register(target) {
+                    self.emit(IC10Instruction::Move(target, source_operand));
                 }
             }
         }
     }
 
-    fn lower_intrinsic_call(&mut self, dest: TempId, function: Intrinsic, args: &[TempId]) {
-        let dest_register = self.register_of(dest);
+    fn lower_intrinsic_call(&mut self, target: TempId, function: Intrinsic, args: &[TempId]) {
+        let target_register = self.register_of(target);
         let instruction = match function {
-            Intrinsic::Abs => IC10Instruction::Abs(dest_register, self.operand_of(args[0])),
-            Intrinsic::Ceil => IC10Instruction::Ceil(dest_register, self.operand_of(args[0])),
-            Intrinsic::Floor => IC10Instruction::Floor(dest_register, self.operand_of(args[0])),
-            Intrinsic::Round => IC10Instruction::Round(dest_register, self.operand_of(args[0])),
-            Intrinsic::Trunc => IC10Instruction::Trunc(dest_register, self.operand_of(args[0])),
-            Intrinsic::Sqrt => IC10Instruction::Sqrt(dest_register, self.operand_of(args[0])),
-            Intrinsic::Exp => IC10Instruction::Exp(dest_register, self.operand_of(args[0])),
-            Intrinsic::Log => IC10Instruction::Log(dest_register, self.operand_of(args[0])),
-            Intrinsic::Sin => IC10Instruction::Sin(dest_register, self.operand_of(args[0])),
-            Intrinsic::Cos => IC10Instruction::Cos(dest_register, self.operand_of(args[0])),
-            Intrinsic::Tan => IC10Instruction::Tan(dest_register, self.operand_of(args[0])),
-            Intrinsic::Asin => IC10Instruction::Asin(dest_register, self.operand_of(args[0])),
-            Intrinsic::Acos => IC10Instruction::Acos(dest_register, self.operand_of(args[0])),
-            Intrinsic::Atan => IC10Instruction::Atan(dest_register, self.operand_of(args[0])),
+            Intrinsic::Abs => IC10Instruction::Abs(target_register, self.operand_of(args[0])),
+            Intrinsic::Ceil => IC10Instruction::Ceil(target_register, self.operand_of(args[0])),
+            Intrinsic::Floor => IC10Instruction::Floor(target_register, self.operand_of(args[0])),
+            Intrinsic::Round => IC10Instruction::Round(target_register, self.operand_of(args[0])),
+            Intrinsic::Trunc => IC10Instruction::Trunc(target_register, self.operand_of(args[0])),
+            Intrinsic::Sqrt => IC10Instruction::Sqrt(target_register, self.operand_of(args[0])),
+            Intrinsic::Exp => IC10Instruction::Exp(target_register, self.operand_of(args[0])),
+            Intrinsic::Log => IC10Instruction::Log(target_register, self.operand_of(args[0])),
+            Intrinsic::Sin => IC10Instruction::Sin(target_register, self.operand_of(args[0])),
+            Intrinsic::Cos => IC10Instruction::Cos(target_register, self.operand_of(args[0])),
+            Intrinsic::Tan => IC10Instruction::Tan(target_register, self.operand_of(args[0])),
+            Intrinsic::Asin => IC10Instruction::Asin(target_register, self.operand_of(args[0])),
+            Intrinsic::Acos => IC10Instruction::Acos(target_register, self.operand_of(args[0])),
+            Intrinsic::Atan => IC10Instruction::Atan(target_register, self.operand_of(args[0])),
             Intrinsic::Atan2 => IC10Instruction::Atan2(
-                dest_register,
+                target_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
             ),
             Intrinsic::Pow => IC10Instruction::Pow(
-                dest_register,
+                target_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
             ),
             Intrinsic::Min => IC10Instruction::Min(
-                dest_register,
+                target_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
             ),
             Intrinsic::Max => IC10Instruction::Max(
-                dest_register,
+                target_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
             ),
             Intrinsic::Lerp => IC10Instruction::Lerp(
-                dest_register,
+                target_register,
                 self.operand_of(args[0]),
                 self.operand_of(args[1]),
                 self.operand_of(args[2]),
@@ -544,25 +541,25 @@ impl<'a> Emitter<'a> {
                 // clamp(x, min, max) → max(min, min(x, max))
                 // Uses two instructions: min then max.
                 self.emit(IC10Instruction::Min(
-                    dest_register,
+                    target_register,
                     self.operand_of(args[0]),
                     self.operand_of(args[2]),
                 ));
                 IC10Instruction::Max(
-                    dest_register,
-                    Operand::Register(dest_register),
+                    target_register,
+                    Operand::Register(target_register),
                     self.operand_of(args[1]),
                 )
             }
-            Intrinsic::Rand => IC10Instruction::Rand(dest_register),
-            Intrinsic::IsNan => IC10Instruction::Snan(dest_register, self.operand_of(args[0])),
+            Intrinsic::Rand => IC10Instruction::Rand(target_register),
+            Intrinsic::IsNan => IC10Instruction::Snan(target_register, self.operand_of(args[0])),
         };
         self.emit(instruction);
     }
 
     fn lower_call(
         &mut self,
-        dest: Option<TempId>,
+        target: Option<TempId>,
         function_symbol: crate::ir::bound::SymbolId,
         args: &[TempId],
         position: LinearPosition,
@@ -597,11 +594,11 @@ impl<'a> Emitter<'a> {
             camel_function_name.clone(),
         )));
 
-        if let Some(dest_temp) = dest {
-            let dest_register = self.register_of(dest_temp);
-            if dest_register != Register::R0 {
+        if let Some(target_temp) = target {
+            let target_register = self.register_of(target_temp);
+            if target_register != Register::R0 {
                 self.emit(IC10Instruction::Move(
-                    dest_register,
+                    target_register,
                     Operand::Register(Register::R0),
                 ));
             }

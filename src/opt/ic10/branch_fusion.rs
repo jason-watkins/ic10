@@ -20,80 +20,80 @@ struct Comparison {
 
 fn extract_comparison(instruction: &IC10Instruction) -> Option<Comparison> {
     match instruction {
-        IC10Instruction::Seq(dest, left, right) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Seq(target, left, right) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::Equal,
             left: left.clone(),
             right: Some(right.clone()),
         }),
-        IC10Instruction::Sne(dest, left, right) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Sne(target, left, right) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::NotEqual,
             left: left.clone(),
             right: Some(right.clone()),
         }),
-        IC10Instruction::Sgt(dest, left, right) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Sgt(target, left, right) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::GreaterThan,
             left: left.clone(),
             right: Some(right.clone()),
         }),
-        IC10Instruction::Sge(dest, left, right) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Sge(target, left, right) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::GreaterEqual,
             left: left.clone(),
             right: Some(right.clone()),
         }),
-        IC10Instruction::Slt(dest, left, right) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Slt(target, left, right) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::LessThan,
             left: left.clone(),
             right: Some(right.clone()),
         }),
-        IC10Instruction::Sle(dest, left, right) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Sle(target, left, right) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::LessEqual,
             left: left.clone(),
             right: Some(right.clone()),
         }),
-        IC10Instruction::Seqz(dest, operand) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Seqz(target, operand) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::Equal,
             left: operand.clone(),
             right: None,
         }),
-        IC10Instruction::Snez(dest, operand) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Snez(target, operand) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::NotEqual,
             left: operand.clone(),
             right: None,
         }),
-        IC10Instruction::Sgtz(dest, operand) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Sgtz(target, operand) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::GreaterThan,
             left: operand.clone(),
             right: None,
         }),
-        IC10Instruction::Sgez(dest, operand) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Sgez(target, operand) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::GreaterEqual,
             left: operand.clone(),
             right: None,
         }),
-        IC10Instruction::Sltz(dest, operand) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Sltz(target, operand) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::LessThan,
             left: operand.clone(),
             right: None,
         }),
-        IC10Instruction::Slez(dest, operand) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Slez(target, operand) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::LessEqual,
             left: operand.clone(),
             right: None,
         }),
-        IC10Instruction::Snan(dest, operand) => Some(Comparison {
-            destination: *dest,
+        IC10Instruction::Snan(target, operand) => Some(Comparison {
+            destination: *target,
             kind: ComparisonKind::IsNaN,
             left: operand.clone(),
             right: None,

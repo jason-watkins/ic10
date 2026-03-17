@@ -156,20 +156,21 @@ pub fn linearize_function(function: &Function, block_order: &[BlockId]) -> Linea
 /// Collect the `TempId`s defined by a single instruction (0 or 1 in practice for non-phi).
 fn instruction_defs(instruction: &Instruction) -> Vec<TempId> {
     match instruction {
-        Instruction::Assign { dest, .. } => vec![*dest],
-        Instruction::Phi { dest, .. } => vec![*dest],
-        Instruction::LoadDevice { dest, .. } => vec![*dest],
-        Instruction::LoadSlot { dest, .. } => vec![*dest],
-        Instruction::BatchRead { dest, .. } => vec![*dest],
+        Instruction::Assign { target, .. } => vec![*target],
+        Instruction::Phi { target, .. } => vec![*target],
+        Instruction::LoadDevice { target, .. } => vec![*target],
+        Instruction::LoadSlot { target, .. } => vec![*target],
+        Instruction::BatchRead { target, .. } => vec![*target],
         Instruction::Call {
-            dest: Some(dest), ..
-        } => vec![*dest],
-        Instruction::IntrinsicCall { dest, .. } => vec![*dest],
-        Instruction::LoadStatic { dest, .. } => vec![*dest],
+            target: Some(target),
+            ..
+        } => vec![*target],
+        Instruction::IntrinsicCall { target, .. } => vec![*target],
+        Instruction::LoadStatic { target, .. } => vec![*target],
         Instruction::StoreDevice { .. }
         | Instruction::StoreSlot { .. }
         | Instruction::BatchWrite { .. }
-        | Instruction::Call { dest: None, .. }
+        | Instruction::Call { target: None, .. }
         | Instruction::Sleep { .. }
         | Instruction::StoreStatic { .. }
         | Instruction::Yield => vec![],

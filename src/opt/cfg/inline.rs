@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::ir::bound::SymbolId;
 use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, Program, TempId, Terminator,
 };
-use crate::ir::bound::SymbolId;
 
-use super::utilities::{instruction_dest, substitute_in_instruction, substitute_in_terminator};
+use super::utilities::{instruction_target, substitute_in_instruction, substitute_in_terminator};
 
 pub(super) fn inline_functions(program: &mut Program) {
     let call_graph = build_call_graph(program);
@@ -180,8 +180,8 @@ fn inline_call_into_function(
 ) {
     let call_instruction =
         caller.blocks[call_block_index].instructions[call_instruction_index].clone();
-    let (call_dest, call_args) = match &call_instruction {
-        Instruction::Call { dest, args, .. } => (*dest, args.clone()),
+    let (call_target, call_args) = match &call_instruction {
+        Instruction::Call { target, args, .. } => (*target, args.clone()),
         _ => unreachable!("inline_call_into_function called on non-Call instruction"),
     };
 
@@ -192,8 +192,8 @@ fn inline_call_into_function(
     let mut max_callee_temp = 0;
     for block in &callee.blocks {
         for instruction in &block.instructions {
-            if let Some(dest) = instruction_dest(instruction) {
-                max_callee_temp = max_callee_temp.max(dest.0 + 1);
+            if let Some(target) = instruction_target(instruction) {
+                max_callee_temp = max_callee_temp.max(target.0 + 1);
             }
         }
     }
@@ -204,7 +204,7 @@ fn inline_call_into_function(
     let merge_block_id = BlockId(block_offset + callee_block_count);
     let callee_entry = remap_block(callee.entry);
 
-    let result_temp = call_dest.map(|_| TempId(temp_offset + max_callee_temp));
+    let result_temp = call_target.map(|_| TempId(temp_offset + max_callee_temp));
     let mut next_inline_temp =
         temp_offset + max_callee_temp + if result_temp.is_some() { 1 } else { 0 };
     let mut return_value_temps: Vec<(BlockId, TempId)> = Vec::new();
@@ -215,7 +215,7 @@ fn inline_call_into_function(
 
         for instruction in &callee_block.instructions {
             let new_instruction = match instruction {
-                Instruction::Assign { dest, operation } => {
+                Instruction::Assign { target, operation } => {
                     let remapped_operation = match operation {
                         Operation::Parameter { index } => Operation::Copy(call_args[*index]),
                         Operation::Copy(source) => Operation::Copy(remap_temp(*source)),
@@ -253,19 +253,19 @@ fn inline_call_into_function(
                         },
                     };
                     Instruction::Assign {
-                        dest: remap_temp(*dest),
+                        target: remap_temp(*target),
                         operation: remapped_operation,
                     }
                 }
-                Instruction::Phi { dest, args } => Instruction::Phi {
-                    dest: remap_temp(*dest),
+                Instruction::Phi { target, args } => Instruction::Phi {
+                    target: remap_temp(*target),
                     args: args
                         .iter()
                         .map(|&(t, b)| (remap_temp(t), remap_block(b)))
                         .collect(),
                 },
-                Instruction::LoadDevice { dest, pin, field } => Instruction::LoadDevice {
-                    dest: remap_temp(*dest),
+                Instruction::LoadDevice { target, pin, field } => Instruction::LoadDevice {
+                    target: remap_temp(*target),
                     pin: *pin,
                     field: field.clone(),
                 },
@@ -274,8 +274,8 @@ fn inline_call_into_function(
                     field: field.clone(),
                     source: remap_temp(*source),
                 },
-                Instruction::LoadStatic { dest, static_id } => Instruction::LoadStatic {
-                    dest: remap_temp(*dest),
+                Instruction::LoadStatic { target, static_id } => Instruction::LoadStatic {
+                    target: remap_temp(*target),
                     static_id: *static_id,
                 },
                 Instruction::StoreStatic { static_id, source } => Instruction::StoreStatic {
@@ -283,12 +283,12 @@ fn inline_call_into_function(
                     source: remap_temp(*source),
                 },
                 Instruction::LoadSlot {
-                    dest,
+                    target,
                     pin,
                     slot,
                     field,
                 } => Instruction::LoadSlot {
-                    dest: remap_temp(*dest),
+                    target: remap_temp(*target),
                     pin: *pin,
                     slot: remap_temp(*slot),
                     field: field.clone(),
@@ -305,12 +305,12 @@ fn inline_call_into_function(
                     source: remap_temp(*source),
                 },
                 Instruction::BatchRead {
-                    dest,
+                    target,
                     hash,
                     field,
                     mode,
                 } => Instruction::BatchRead {
-                    dest: remap_temp(*dest),
+                    target: remap_temp(*target),
                     hash: remap_temp(*hash),
                     field: field.clone(),
                     mode: *mode,
@@ -321,20 +321,20 @@ fn inline_call_into_function(
                     value: remap_temp(*value),
                 },
                 Instruction::Call {
-                    dest,
+                    target,
                     function,
                     args,
                 } => Instruction::Call {
-                    dest: dest.map(&remap_temp),
+                    target: target.map(&remap_temp),
                     function: *function,
                     args: args.iter().map(|&a| remap_temp(a)).collect(),
                 },
                 Instruction::IntrinsicCall {
-                    dest,
+                    target,
                     function,
                     args,
                 } => Instruction::IntrinsicCall {
-                    dest: remap_temp(*dest),
+                    target: remap_temp(*target),
                     function: *function,
                     args: args.iter().map(|&a| remap_temp(a)).collect(),
                 },
@@ -359,12 +359,12 @@ fn inline_call_into_function(
             },
             Terminator::Return(value) => {
                 if let Some(return_value) = value
-                    && call_dest.is_some()
+                    && call_target.is_some()
                 {
                     let value_temp = TempId(next_inline_temp);
                     next_inline_temp += 1;
                     instructions.push(Instruction::Assign {
-                        dest: value_temp,
+                        target: value_temp,
                         operation: Operation::Copy(remap_temp(*return_value)),
                     });
                     return_value_temps.push((remap_block(callee_block.id), value_temp));
@@ -413,7 +413,7 @@ fn inline_call_into_function(
     let (final_result_temp, merge_instructions) = if return_value_temps.len() > 1 {
         let result = result_temp.unwrap();
         let phi = Instruction::Phi {
-            dest: result,
+            target: result,
             args: return_value_temps
                 .iter()
                 .map(|&(block, temp)| (temp, block))
@@ -446,8 +446,8 @@ fn inline_call_into_function(
         .push(call_block_id);
 
     let mut substitutions: HashMap<TempId, TempId> = HashMap::new();
-    if let (Some(call_dest_temp), Some(result)) = (call_dest, final_result_temp) {
-        substitutions.insert(call_dest_temp, result);
+    if let (Some(call_target_temp), Some(result)) = (call_target, final_result_temp) {
+        substitutions.insert(call_target_temp, result);
     }
 
     let mut merge_post_instructions = merge_instructions;

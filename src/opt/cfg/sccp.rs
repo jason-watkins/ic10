@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::ir::cfg::{BlockId, Function, Instruction, Operation, TempId, Terminator};
 use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
-use super::utilities::instruction_dest;
+use super::utilities::instruction_target;
 
 #[derive(Debug, Clone, Copy)]
 enum LatticeValue {
@@ -61,10 +61,10 @@ pub(super) fn sccp(function: &mut Function) -> bool {
 
             let block = &function.blocks[target.0];
             for instruction in &block.instructions {
-                if let Instruction::Phi { dest, args, .. } = instruction {
+                if let Instruction::Phi { target, args, .. } = instruction {
                     let new_value = evaluate_phi(args, &values, &reachable);
-                    if update_lattice(*dest, new_value, &mut values) {
-                        ssa_worklist.push_back(*dest);
+                    if update_lattice(*target, new_value, &mut values) {
+                        ssa_worklist.push_back(*target);
                     }
                 }
             }
@@ -86,10 +86,10 @@ pub(super) fn sccp(function: &mut Function) -> bool {
                         continue;
                     }
                     let instruction = &function.blocks[block_id.0].instructions[instruction_index];
-                    if let Instruction::Phi { dest, args, .. } = instruction {
+                    if let Instruction::Phi { target, args, .. } = instruction {
                         let new_value = evaluate_phi(args, &values, &reachable);
-                        if update_lattice(*dest, new_value, &mut values) {
-                            ssa_worklist.push_back(*dest);
+                        if update_lattice(*target, new_value, &mut values) {
+                            ssa_worklist.push_back(*target);
                         }
                     } else {
                         update_value(instruction, &mut values, &mut ssa_worklist);
@@ -265,10 +265,10 @@ fn update_value(
         | Instruction::Yield => return,
     };
 
-    if let Some(dest) = instruction_dest(instruction)
-        && update_lattice(dest, new_value, values)
+    if let Some(target) = instruction_target(instruction)
+        && update_lattice(target, new_value, values)
     {
-        ssa_worklist.push_back(dest);
+        ssa_worklist.push_back(target);
     }
 }
 
@@ -494,8 +494,8 @@ fn apply_results(
             continue;
         }
         for instruction in &mut block.instructions {
-            if let Some(dest) = instruction_dest(instruction)
-                && let Some(LatticeValue::Constant(value)) = values.get(&dest)
+            if let Some(target) = instruction_target(instruction)
+                && let Some(LatticeValue::Constant(value)) = values.get(&target)
                 && !matches!(
                     instruction,
                     Instruction::Assign {
@@ -505,7 +505,7 @@ fn apply_results(
                 )
             {
                 *instruction = Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Constant(*value),
                 };
                 changed = true;
@@ -613,8 +613,8 @@ fn build_temp_block_map(function: &Function) -> HashMap<TempId, BlockId> {
     let mut map = HashMap::new();
     for block in &function.blocks {
         for instruction in &block.instructions {
-            if let Some(dest) = instruction_dest(instruction) {
-                map.insert(dest, block.id);
+            if let Some(target) = instruction_target(instruction) {
+                map.insert(target, block.id);
             }
         }
     }

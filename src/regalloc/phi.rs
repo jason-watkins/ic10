@@ -17,12 +17,12 @@ pub fn deconstruct_phis(function: &mut Function) {
 
     for block in &function.blocks {
         for instruction in &block.instructions {
-            if let Instruction::Phi { dest, args } = instruction {
+            if let Instruction::Phi { target, args } = instruction {
                 for &(source, predecessor) in args {
                     copies_per_edge
                         .entry((block.id, predecessor))
                         .or_default()
-                        .push((*dest, source));
+                        .push((*target, source));
                 }
             }
         }
@@ -30,11 +30,11 @@ pub fn deconstruct_phis(function: &mut Function) {
 
     for ((_target, predecessor), copies) in &copies_per_edge {
         let sequenced = sequence_parallel_copies(copies, function);
-        for (dest, source) in sequenced {
+        for (target, source) in sequenced {
             function.blocks[predecessor.0]
                 .instructions
                 .push(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Copy(source),
                 });
         }
@@ -145,9 +145,9 @@ fn rewrite_terminator_target(
 
 /// Sequence a set of simultaneous copies into an order that can be executed sequentially.
 ///
-/// When no copy's destination is used as a source by another copy, the copies can be emitted
+/// When no copy's target is used as a source by another copy, the copies can be emitted
 /// in any order. When there are dependencies (e.g. `a <- b` and `b <- c`), dependent copies
-/// are emitted after the ones that read their destination. Cycles (e.g. `a <- b` and `b <- a`)
+/// are emitted after the ones that read their target. Cycles (e.g. `a <- b` and `b <- a`)
 /// are broken by introducing a fresh temporary.
 pub(crate) fn sequence_parallel_copies(
     copies: &[(TempId, TempId)],
@@ -155,7 +155,7 @@ pub(crate) fn sequence_parallel_copies(
 ) -> Vec<(TempId, TempId)> {
     let mut remaining: Vec<(TempId, TempId)> = copies
         .iter()
-        .filter(|(dest, source)| dest != source)
+        .filter(|(target, source)| target != source)
         .copied()
         .collect();
 
@@ -168,16 +168,16 @@ pub(crate) fn sequence_parallel_copies(
 
         let ready = remaining
             .iter()
-            .position(|(dest, _)| !remaining.iter().any(|(_, source)| source == dest));
+            .position(|(target, _)| !remaining.iter().any(|(_, source)| source == target));
 
         if let Some(index) = ready {
             result.push(remaining.remove(index));
         } else {
-            let (dest, _) = remaining[0];
+            let (target, _) = remaining[0];
             let temporary = function.fresh_temp();
-            result.push((temporary, dest));
+            result.push((temporary, target));
             for (_, source) in remaining.iter_mut() {
-                if *source == dest {
+                if *source == target {
                     *source = temporary;
                 }
             }

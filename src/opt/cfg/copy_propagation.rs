@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ir::cfg::{BlockId, Function, Instruction, Operation, TempId};
 
-use super::utilities::{apply_substitutions, instruction_dest, resolve_substitution_chains};
+use super::utilities::{apply_substitutions, instruction_target, resolve_substitution_chains};
 
 pub(super) fn copy_propagation(function: &mut Function) -> bool {
     let mut substitutions: HashMap<TempId, TempId> = HashMap::new();
@@ -11,18 +11,18 @@ pub(super) fn copy_propagation(function: &mut Function) -> bool {
         for instruction in &block.instructions {
             match instruction {
                 Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Copy(source),
                 } => {
-                    if *dest != *source {
-                        substitutions.insert(*dest, *source);
+                    if *target != *source {
+                        substitutions.insert(*target, *source);
                     }
                 }
-                Instruction::Phi { dest, args } => {
+                Instruction::Phi { target, args } => {
                     if let Some(single_source) = single_phi_source(args)
-                        && *dest != single_source
+                        && *target != single_source
                     {
-                        substitutions.insert(*dest, single_source);
+                        substitutions.insert(*target, single_source);
                     }
                 }
                 _ => {}
@@ -39,8 +39,8 @@ pub(super) fn copy_propagation(function: &mut Function) -> bool {
     let resolved = resolve_substitution_chains(&substitutions);
     for block in &mut function.blocks {
         block.instructions.retain(|instruction| {
-            if let Some(dest) = instruction_dest(instruction) {
-                !resolved.contains_key(&dest)
+            if let Some(target) = instruction_target(instruction) {
+                !resolved.contains_key(&target)
             } else {
                 true
             }

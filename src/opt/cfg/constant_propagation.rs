@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::ir::cfg::{BlockId, Function, Instruction, Operation, TempId, Terminator};
 use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
-use super::utilities::instruction_dest;
+use super::utilities::instruction_target;
 
 pub(super) fn constant_propagation(function: &mut Function) -> bool {
     let mut constants: HashMap<TempId, f64> = HashMap::new();
@@ -12,11 +12,11 @@ pub(super) fn constant_propagation(function: &mut Function) -> bool {
     for block in &function.blocks {
         for instruction in &block.instructions {
             if let Instruction::Assign {
-                dest,
+                target,
                 operation: Operation::Constant(value),
             } = instruction
             {
-                constants.insert(*dest, *value);
+                constants.insert(*target, *value);
             }
         }
     }
@@ -25,15 +25,15 @@ pub(super) fn constant_propagation(function: &mut Function) -> bool {
         let mut new_found = false;
         for block in &function.blocks {
             for instruction in &block.instructions {
-                let dest = match instruction_dest(instruction) {
+                let target = match instruction_target(instruction) {
                     Some(d) => d,
                     None => continue,
                 };
-                if constants.contains_key(&dest) {
+                if constants.contains_key(&target) {
                     continue;
                 }
                 if let Some(value) = try_evaluate_constant(instruction, &constants) {
-                    constants.insert(dest, value);
+                    constants.insert(target, value);
                     new_found = true;
                 }
             }
@@ -45,8 +45,8 @@ pub(super) fn constant_propagation(function: &mut Function) -> bool {
 
     for block in &mut function.blocks {
         for instruction in &mut block.instructions {
-            if let Some(dest) = instruction_dest(instruction)
-                && let Some(&value) = constants.get(&dest)
+            if let Some(target) = instruction_target(instruction)
+                && let Some(&value) = constants.get(&target)
                 && !matches!(
                     instruction,
                     Instruction::Assign {
@@ -56,7 +56,7 @@ pub(super) fn constant_propagation(function: &mut Function) -> bool {
                 )
             {
                 *instruction = Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Constant(value),
                 };
                 changed = true;
@@ -300,7 +300,11 @@ fn fold_cast(value: f64, source: Type, target: Type) -> f64 {
         | (Type::Bool, Type::F64) => value,
         (Type::F64, Type::I53) => value.trunc(),
         (Type::I53, Type::Bool) | (Type::F64, Type::Bool) => {
-            if value != 0.0 { 1.0 } else { 0.0 }
+            if value != 0.0 {
+                1.0
+            } else {
+                0.0
+            }
         }
         (Type::Unit, _) | (_, Type::Unit) => {
             unreachable!(

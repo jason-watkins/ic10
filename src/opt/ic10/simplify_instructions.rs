@@ -9,7 +9,7 @@ fn eliminate_self_moves(instructions: &mut Vec<IC10Instruction>) {
     instructions.retain(|instruction| {
         !matches!(
             instruction,
-            IC10Instruction::Move(dest, Operand::Register(source)) if dest == source
+            IC10Instruction::Move(target, Operand::Register(source)) if target == source
         )
     });
 }
@@ -25,29 +25,29 @@ fn is_one(operand: &Operand) -> bool {
 fn simplify_arithmetic_identities(instructions: &mut [IC10Instruction]) {
     for instruction in instructions.iter_mut() {
         let replacement = match instruction {
-            IC10Instruction::Add(dest, left, right) if is_zero(right) => {
-                Some(IC10Instruction::Move(*dest, left.clone()))
+            IC10Instruction::Add(target, left, right) if is_zero(right) => {
+                Some(IC10Instruction::Move(*target, left.clone()))
             }
-            IC10Instruction::Add(dest, left, right) if is_zero(left) => {
-                Some(IC10Instruction::Move(*dest, right.clone()))
+            IC10Instruction::Add(target, left, right) if is_zero(left) => {
+                Some(IC10Instruction::Move(*target, right.clone()))
             }
-            IC10Instruction::Sub(dest, left, right) if is_zero(right) => {
-                Some(IC10Instruction::Move(*dest, left.clone()))
+            IC10Instruction::Sub(target, left, right) if is_zero(right) => {
+                Some(IC10Instruction::Move(*target, left.clone()))
             }
-            IC10Instruction::Mul(dest, left, right) if is_one(right) => {
-                Some(IC10Instruction::Move(*dest, left.clone()))
+            IC10Instruction::Mul(target, left, right) if is_one(right) => {
+                Some(IC10Instruction::Move(*target, left.clone()))
             }
-            IC10Instruction::Mul(dest, left, right) if is_one(left) => {
-                Some(IC10Instruction::Move(*dest, right.clone()))
+            IC10Instruction::Mul(target, left, right) if is_one(left) => {
+                Some(IC10Instruction::Move(*target, right.clone()))
             }
-            IC10Instruction::Mul(dest, _, right) if is_zero(right) => {
-                Some(IC10Instruction::Move(*dest, Operand::Literal(0.0)))
+            IC10Instruction::Mul(target, _, right) if is_zero(right) => {
+                Some(IC10Instruction::Move(*target, Operand::Literal(0.0)))
             }
-            IC10Instruction::Mul(dest, left, _) if is_zero(left) => {
-                Some(IC10Instruction::Move(*dest, Operand::Literal(0.0)))
+            IC10Instruction::Mul(target, left, _) if is_zero(left) => {
+                Some(IC10Instruction::Move(*target, Operand::Literal(0.0)))
             }
-            IC10Instruction::Div(dest, left, right) if is_one(right) => {
-                Some(IC10Instruction::Move(*dest, left.clone()))
+            IC10Instruction::Div(target, left, right) if is_one(right) => {
+                Some(IC10Instruction::Move(*target, left.clone()))
             }
             _ => None,
         };

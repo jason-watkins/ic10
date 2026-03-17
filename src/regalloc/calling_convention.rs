@@ -87,7 +87,7 @@ pub fn find_call_sites(function: &Function, linear_map: &LinearMap) -> Vec<Linea
 /// spilled before the call and reloaded afterwards.
 ///
 /// Temps whose range ends exactly at `site` (argument temps whose last use is the call)
-/// and temps whose range starts exactly at `site` (the call's return-value dest) are
+/// and temps whose range starts exactly at `site` (the call's return-value target) are
 /// intentionally excluded.
 pub fn find_live_across_calls(
     call_sites: &[LinearPosition],
@@ -131,7 +131,7 @@ pub fn classify_function(function: &Function) -> FunctionClass {
 /// - **Return value** (§5.3): every `Terminator::Return(Some(temp))` fixes `temp` to `r0`.
 /// - **Call arguments** (§5.4): at each `Instruction::Call`, each argument temp is fixed
 ///   to `r0`, `r1`, ... in argument order.
-/// - **Call return value** (§5.5): the `dest` temp of each `Instruction::Call` is fixed
+/// - **Call return value** (§5.5): the `target` temp of each `Instruction::Call` is fixed
 ///   to `r0`.
 pub fn analyze_calling_convention(
     function: &Function,
@@ -167,12 +167,12 @@ pub fn analyze_calling_convention(
     // §5.4 and §5.5 — call sites.
     for block in &function.blocks {
         for instruction in &block.instructions {
-            if let Instruction::Call { dest, args, .. } = instruction {
+            if let Instruction::Call { target, args, .. } = instruction {
                 for (index, &arg_temp) in args.iter().enumerate() {
                     fixed.insert(arg_temp, register_for_index(index));
                 }
-                if let Some(dest_temp) = dest {
-                    fixed.insert(*dest_temp, Register::R0);
+                if let Some(target_temp) = target {
+                    fixed.insert(*target_temp, Register::R0);
                 }
             }
         }

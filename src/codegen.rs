@@ -139,17 +139,17 @@ impl fmt::Display for IC10Instruction {
             IC10Instruction::Srl(d, a, b) => write!(f, "srl {d} {a} {b}"),
             IC10Instruction::Sra(d, a, b) => write!(f, "sra {d} {a} {b}"),
             IC10Instruction::Ext {
-                dest,
+                target,
                 source,
                 bit_offset,
                 bit_length,
-            } => write!(f, "ext {dest} {source} {bit_offset} {bit_length}"),
+            } => write!(f, "ext {target} {source} {bit_offset} {bit_length}"),
             IC10Instruction::Ins {
-                dest,
+                target,
                 field,
                 bit_offset,
                 bit_length,
-            } => write!(f, "ins {dest} {bit_offset} {bit_length} {field}"),
+            } => write!(f, "ins {target} {bit_offset} {bit_length} {field}"),
 
             IC10Instruction::Seq(d, a, b) => write!(f, "seq {d} {a} {b}"),
             IC10Instruction::Seqz(d, a) => write!(f, "seqz {d} {a}"),
@@ -324,11 +324,11 @@ impl fmt::Display for IC10Instruction {
                 source,
             } => write!(f, "sd {reference_id} {logic_type} {source}"),
             IC10Instruction::BatchLoad {
-                dest,
+                target,
                 device_hash,
                 logic_type,
                 batch_mode,
-            } => write!(f, "lb {dest} {device_hash} {logic_type} {batch_mode}"),
+            } => write!(f, "lb {target} {device_hash} {logic_type} {batch_mode}"),
             IC10Instruction::BatchStore {
                 device_hash,
                 logic_type,
@@ -341,14 +341,14 @@ impl fmt::Display for IC10Instruction {
                 source,
             } => write!(f, "sbn {device_hash} {name_hash} {logic_type} {source}"),
             IC10Instruction::BatchLoadSlot {
-                dest,
+                target,
                 device_hash,
                 slot,
                 slot_logic_type,
                 batch_mode,
             } => write!(
                 f,
-                "lbs {dest} {device_hash} {slot} {slot_logic_type} {batch_mode}"
+                "lbs {target} {device_hash} {slot} {slot_logic_type} {batch_mode}"
             ),
             IC10Instruction::BatchStoreSlot {
                 device_hash,
@@ -357,7 +357,7 @@ impl fmt::Display for IC10Instruction {
                 source,
             } => write!(f, "sbs {device_hash} {slot} {slot_logic_type} {source}"),
             IC10Instruction::BatchLoadSlotByName {
-                dest,
+                target,
                 device_hash,
                 name_hash,
                 slot,
@@ -365,7 +365,7 @@ impl fmt::Display for IC10Instruction {
                 batch_mode,
             } => write!(
                 f,
-                "lbns {dest} {device_hash} {name_hash} {slot} {slot_logic_type} {batch_mode}"
+                "lbns {target} {device_hash} {name_hash} {slot} {slot_logic_type} {batch_mode}"
             ),
 
             IC10Instruction::HaltAndCatchFire => write!(f, "hcf"),
@@ -825,7 +825,7 @@ mod tests {
     #[test]
     fn instruction_display_batch_load() {
         let batch = IC10Instruction::BatchLoad {
-            dest: Register::R0,
+            target: Register::R0,
             device_hash: Operand::Literal(12345.0),
             logic_type: "Temperature".to_string(),
             batch_mode: BatchMode::Average,
@@ -1112,7 +1112,7 @@ mod tests {
         );
         assert_eq!(
             IC10Instruction::Ext {
-                dest: d,
+                target: d,
                 source: a.clone(),
                 bit_offset: b.clone(),
                 bit_length: c.clone()
@@ -1123,7 +1123,7 @@ mod tests {
         // Note: `ins` uses stable IC10 parameter order: offset, length, field (not field, offset, length).
         assert_eq!(
             IC10Instruction::Ins {
-                dest: d,
+                target: d,
                 field: a.clone(),
                 bit_offset: b.clone(),
                 bit_length: c.clone()
@@ -1629,7 +1629,7 @@ mod tests {
         );
         assert_eq!(
             IC10Instruction::BatchLoadSlot {
-                dest: d,
+                target: d,
                 device_hash: a.clone(),
                 slot: b.clone(),
                 slot_logic_type: "Quantity".to_string(),
@@ -1650,7 +1650,7 @@ mod tests {
         );
         assert_eq!(
             IC10Instruction::BatchLoadSlotByName {
-                dest: d,
+                target: d,
                 device_hash: a.clone(),
                 name_hash: b.clone(),
                 slot: c.clone(),

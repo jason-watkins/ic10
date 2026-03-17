@@ -205,11 +205,11 @@ mod tests {
         for block in &function.blocks {
             for instruction in &block.instructions {
                 if let Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Copy(source),
                 } = instruction
                 {
-                    copies.push((block.id, *dest, *source));
+                    copies.push((block.id, *target, *source));
                 }
             }
         }
@@ -400,9 +400,9 @@ mod tests {
         let copies = vec![(TempId(0), TempId(1)), (TempId(2), TempId(3))];
         let result = sequence_parallel_copies(&copies, &mut function);
         assert_eq!(result.len(), 2);
-        let destinations: Vec<_> = result.iter().map(|(d, _)| *d).collect();
-        assert!(destinations.contains(&TempId(0)));
-        assert!(destinations.contains(&TempId(2)));
+        let targets: Vec<_> = result.iter().map(|(d, _)| *d).collect();
+        assert!(targets.contains(&TempId(0)));
+        assert!(targets.contains(&TempId(2)));
     }
 
     #[test]
@@ -425,9 +425,9 @@ mod tests {
         let copies = vec![(TempId(0), TempId(1)), (TempId(2), TempId(0))];
         let result = sequence_parallel_copies(&copies, &mut function);
         assert_eq!(result.len(), 2);
-        let first_dest = result[0].0;
+        let first_target = result[0].0;
         assert_eq!(
-            first_dest,
+            first_target,
             TempId(2),
             "c <- a must come before a <- b to avoid clobbering a"
         );
@@ -1122,7 +1122,7 @@ mod tests {
 
         for position in 0..linear_map.total {
             let pos = LinearPosition(position);
-            // Exclude temps whose range starts exactly at `pos`: those are destinations being
+            // Exclude temps whose range starts exactly at `pos`: those are targets being
             // defined at this instruction and can legally share a register with a source whose
             // range ends at `pos` (read-before-write within the same IC10 instruction).
             let live_at_position: Vec<(TempId, Register)> = result
@@ -1216,7 +1216,7 @@ mod tests {
     }
 
     #[test]
-    fn allocate_call_dest_gets_r0() {
+    fn allocate_call_target_gets_r0() {
         let source = r#"
             fn helper() -> i53 { return 42; }
             fn main() { let _x: i53 = helper(); }
@@ -1430,9 +1430,8 @@ mod tests {
 
     #[test]
     fn end_to_end_single_constant() {
-        let program = compile_to_ic10(
-            "device out: d0; fn main() { let x: i53 = 42; out.Setting = x; }",
-        );
+        let program =
+            compile_to_ic10("device out: d0; fn main() { let x: i53 = 42; out.Setting = x; }");
         let instructions = all_instructions(&program);
         let has_move_42 = instructions.iter().any(|instruction| {
             matches!(instruction, IC10Instruction::Move(_, Operand::Literal(v)) if (*v - 42.0).abs() < f64::EPSILON)
@@ -1685,11 +1684,11 @@ mod tests {
             .find(|f| f.name == "identity")
             .expect("should have identity function");
         for instruction in &identity.instructions {
-            if let IC10Instruction::Move(dest, Operand::Register(source)) = instruction {
+            if let IC10Instruction::Move(target, Operand::Register(source)) = instruction {
                 assert_ne!(
-                    dest, source,
+                    target, source,
                     "redundant move from {:?} to itself should be coalesced",
-                    dest,
+                    target,
                 );
             }
         }

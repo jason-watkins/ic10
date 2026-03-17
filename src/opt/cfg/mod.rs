@@ -806,12 +806,12 @@ mod tests {
                         matches!(
                             i,
                             Instruction::Assign {
-                                dest,
+                                target,
                                 operation: Operation::Unary {
                                     operator: UnaryOperator::Not,
                                     ..
                                 },
-                            } if *dest == *condition
+                            } if *target == *condition
                         )
                     })
                 })

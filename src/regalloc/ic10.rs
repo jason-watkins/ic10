@@ -130,17 +130,17 @@ pub enum IC10Instruction {
     Srl(Register, Operand, Operand),
     Sra(Register, Operand, Operand),
     Ext {
-        dest: Register,
+        target: Register,
         source: Operand,
         bit_offset: Operand,
         bit_length: Operand,
     },
-    /// `ins dest field offset length` — insert bit field (max 53 bits).
+    /// `ins target field offset length` — insert bit field (max 53 bits).
     /// Note: stable IC10 (as of 2026-01-12) has a parameter-order bug — codegen must
     /// account for the actual stable order (`offset, length, field`) vs. the documented
     /// order (`field, offset, length`).
     Ins {
-        dest: Register,
+        target: Register,
         field: Operand,
         bit_offset: Operand,
         bit_length: Operand,
@@ -282,7 +282,7 @@ pub enum IC10Instruction {
         source: Operand,
     },
     BatchLoad {
-        dest: Register,
+        target: Register,
         device_hash: Operand,
         logic_type: String,
         batch_mode: BatchMode,
@@ -299,7 +299,7 @@ pub enum IC10Instruction {
         source: Operand,
     },
     BatchLoadSlot {
-        dest: Register,
+        target: Register,
         device_hash: Operand,
         slot: Operand,
         slot_logic_type: String,
@@ -312,7 +312,7 @@ pub enum IC10Instruction {
         source: Operand,
     },
     BatchLoadSlotByName {
-        dest: Register,
+        target: Register,
         device_hash: Operand,
         name_hash: Operand,
         slot: Operand,
@@ -334,77 +334,77 @@ impl IC10Instruction {
     /// variants write `Ra` but that is handled separately by the prologue/epilogue.
     pub fn written_register(&self) -> Option<Register> {
         match self {
-            IC10Instruction::Abs(dest, _)
-            | IC10Instruction::Add(dest, _, _)
-            | IC10Instruction::Sub(dest, _, _)
-            | IC10Instruction::Mul(dest, _, _)
-            | IC10Instruction::Div(dest, _, _)
-            | IC10Instruction::Mod(dest, _, _)
-            | IC10Instruction::Pow(dest, _, _)
-            | IC10Instruction::Exp(dest, _)
-            | IC10Instruction::Log(dest, _)
-            | IC10Instruction::Sqrt(dest, _)
-            | IC10Instruction::Max(dest, _, _)
-            | IC10Instruction::Min(dest, _, _)
-            | IC10Instruction::Ceil(dest, _)
-            | IC10Instruction::Floor(dest, _)
-            | IC10Instruction::Round(dest, _)
-            | IC10Instruction::Trunc(dest, _)
-            | IC10Instruction::Move(dest, _)
-            | IC10Instruction::Rand(dest)
-            | IC10Instruction::Lerp(dest, _, _, _)
-            | IC10Instruction::Sin(dest, _)
-            | IC10Instruction::Cos(dest, _)
-            | IC10Instruction::Tan(dest, _)
-            | IC10Instruction::Asin(dest, _)
-            | IC10Instruction::Acos(dest, _)
-            | IC10Instruction::Atan(dest, _)
-            | IC10Instruction::Atan2(dest, _, _)
-            | IC10Instruction::And(dest, _, _)
-            | IC10Instruction::Or(dest, _, _)
-            | IC10Instruction::Xor(dest, _, _)
-            | IC10Instruction::Nor(dest, _, _)
-            | IC10Instruction::Not(dest, _)
-            | IC10Instruction::Sll(dest, _, _)
-            | IC10Instruction::Sla(dest, _, _)
-            | IC10Instruction::Srl(dest, _, _)
-            | IC10Instruction::Sra(dest, _, _)
-            | IC10Instruction::Seq(dest, _, _)
-            | IC10Instruction::Seqz(dest, _)
-            | IC10Instruction::Sne(dest, _, _)
-            | IC10Instruction::Snez(dest, _)
-            | IC10Instruction::Sgt(dest, _, _)
-            | IC10Instruction::Sgtz(dest, _)
-            | IC10Instruction::Sge(dest, _, _)
-            | IC10Instruction::Sgez(dest, _)
-            | IC10Instruction::Slt(dest, _, _)
-            | IC10Instruction::Sltz(dest, _)
-            | IC10Instruction::Sle(dest, _, _)
-            | IC10Instruction::Slez(dest, _)
-            | IC10Instruction::Sap(dest, _, _, _)
-            | IC10Instruction::Sapz(dest, _, _)
-            | IC10Instruction::Sna(dest, _, _, _)
-            | IC10Instruction::Snaz(dest, _, _)
-            | IC10Instruction::Snan(dest, _)
-            | IC10Instruction::Snanz(dest, _)
-            | IC10Instruction::Sdse(dest, _)
-            | IC10Instruction::Sdns(dest, _)
-            | IC10Instruction::Select(dest, _, _, _)
-            | IC10Instruction::Pop(dest)
-            | IC10Instruction::Peek(dest)
-            | IC10Instruction::Get(dest, _, _)
-            | IC10Instruction::GetById(dest, _, _)
-            | IC10Instruction::Load(dest, _, _)
-            | IC10Instruction::LoadSlot(dest, _, _, _)
-            | IC10Instruction::LoadReagent(dest, _, _, _)
-            | IC10Instruction::ReagentMap(dest, _, _)
-            | IC10Instruction::LoadById(dest, _, _) => Some(*dest),
+            IC10Instruction::Abs(target, _)
+            | IC10Instruction::Add(target, _, _)
+            | IC10Instruction::Sub(target, _, _)
+            | IC10Instruction::Mul(target, _, _)
+            | IC10Instruction::Div(target, _, _)
+            | IC10Instruction::Mod(target, _, _)
+            | IC10Instruction::Pow(target, _, _)
+            | IC10Instruction::Exp(target, _)
+            | IC10Instruction::Log(target, _)
+            | IC10Instruction::Sqrt(target, _)
+            | IC10Instruction::Max(target, _, _)
+            | IC10Instruction::Min(target, _, _)
+            | IC10Instruction::Ceil(target, _)
+            | IC10Instruction::Floor(target, _)
+            | IC10Instruction::Round(target, _)
+            | IC10Instruction::Trunc(target, _)
+            | IC10Instruction::Move(target, _)
+            | IC10Instruction::Rand(target)
+            | IC10Instruction::Lerp(target, _, _, _)
+            | IC10Instruction::Sin(target, _)
+            | IC10Instruction::Cos(target, _)
+            | IC10Instruction::Tan(target, _)
+            | IC10Instruction::Asin(target, _)
+            | IC10Instruction::Acos(target, _)
+            | IC10Instruction::Atan(target, _)
+            | IC10Instruction::Atan2(target, _, _)
+            | IC10Instruction::And(target, _, _)
+            | IC10Instruction::Or(target, _, _)
+            | IC10Instruction::Xor(target, _, _)
+            | IC10Instruction::Nor(target, _, _)
+            | IC10Instruction::Not(target, _)
+            | IC10Instruction::Sll(target, _, _)
+            | IC10Instruction::Sla(target, _, _)
+            | IC10Instruction::Srl(target, _, _)
+            | IC10Instruction::Sra(target, _, _)
+            | IC10Instruction::Seq(target, _, _)
+            | IC10Instruction::Seqz(target, _)
+            | IC10Instruction::Sne(target, _, _)
+            | IC10Instruction::Snez(target, _)
+            | IC10Instruction::Sgt(target, _, _)
+            | IC10Instruction::Sgtz(target, _)
+            | IC10Instruction::Sge(target, _, _)
+            | IC10Instruction::Sgez(target, _)
+            | IC10Instruction::Slt(target, _, _)
+            | IC10Instruction::Sltz(target, _)
+            | IC10Instruction::Sle(target, _, _)
+            | IC10Instruction::Slez(target, _)
+            | IC10Instruction::Sap(target, _, _, _)
+            | IC10Instruction::Sapz(target, _, _)
+            | IC10Instruction::Sna(target, _, _, _)
+            | IC10Instruction::Snaz(target, _, _)
+            | IC10Instruction::Snan(target, _)
+            | IC10Instruction::Snanz(target, _)
+            | IC10Instruction::Sdse(target, _)
+            | IC10Instruction::Sdns(target, _)
+            | IC10Instruction::Select(target, _, _, _)
+            | IC10Instruction::Pop(target)
+            | IC10Instruction::Peek(target)
+            | IC10Instruction::Get(target, _, _)
+            | IC10Instruction::GetById(target, _, _)
+            | IC10Instruction::Load(target, _, _)
+            | IC10Instruction::LoadSlot(target, _, _, _)
+            | IC10Instruction::LoadReagent(target, _, _, _)
+            | IC10Instruction::ReagentMap(target, _, _)
+            | IC10Instruction::LoadById(target, _, _) => Some(*target),
 
-            IC10Instruction::Ext { dest, .. }
-            | IC10Instruction::Ins { dest, .. }
-            | IC10Instruction::BatchLoad { dest, .. }
-            | IC10Instruction::BatchLoadSlot { dest, .. }
-            | IC10Instruction::BatchLoadSlotByName { dest, .. } => Some(*dest),
+            IC10Instruction::Ext { target, .. }
+            | IC10Instruction::Ins { target, .. }
+            | IC10Instruction::BatchLoad { target, .. }
+            | IC10Instruction::BatchLoadSlot { target, .. }
+            | IC10Instruction::BatchLoadSlotByName { target, .. } => Some(*target),
 
             IC10Instruction::Label(_)
             | IC10Instruction::Jump(_)

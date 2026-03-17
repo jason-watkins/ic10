@@ -3,7 +3,7 @@ use std::collections::{HashSet, VecDeque};
 use crate::ir::cfg::{Function, TempId};
 
 use super::utilities::{
-    build_def_map, has_side_effects, instruction_dest, instruction_uses, terminator_uses,
+    build_def_map, has_side_effects, instruction_target, instruction_uses, terminator_uses,
 };
 
 pub(super) fn dead_code_elimination(function: &mut Function) -> bool {
@@ -46,8 +46,8 @@ pub(super) fn dead_code_elimination(function: &mut Function) -> bool {
             if has_side_effects(instruction) {
                 return true;
             }
-            match instruction_dest(instruction) {
-                Some(dest) => live.contains(&dest),
+            match instruction_target(instruction) {
+                Some(target) => live.contains(&target),
                 None => true,
             }
         });

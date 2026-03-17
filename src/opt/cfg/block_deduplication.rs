@@ -158,39 +158,39 @@ fn canonicalize_instruction(
     output: &mut String,
 ) {
     match instruction {
-        Instruction::Assign { dest, operation } => {
-            let dest_index = map(*dest, mapping, next_index);
-            let _ = write!(output, "assign t{} ", dest_index);
+        Instruction::Assign { target, operation } => {
+            let target_index = map(*target, mapping, next_index);
+            let _ = write!(output, "assign t{} ", target_index);
             canonicalize_operation(operation, mapping, next_index, map, output);
         }
-        Instruction::LoadDevice { dest, pin, field } => {
-            let dest_index = map(*dest, mapping, next_index);
-            let _ = write!(output, "load_device t{} {:?} {}", dest_index, pin, field);
+        Instruction::LoadDevice { target, pin, field } => {
+            let target_index = map(*target, mapping, next_index);
+            let _ = write!(output, "load_device t{} {:?} {}", target_index, pin, field);
         }
         Instruction::StoreDevice { pin, field, source } => {
             let source_index = map(*source, mapping, next_index);
             let _ = write!(output, "store_device {:?} {} t{}", pin, field, source_index);
         }
-        Instruction::LoadStatic { dest, static_id } => {
-            let dest_index = map(*dest, mapping, next_index);
-            let _ = write!(output, "load_static t{} {:?}", dest_index, static_id);
+        Instruction::LoadStatic { target, static_id } => {
+            let target_index = map(*target, mapping, next_index);
+            let _ = write!(output, "load_static t{} {:?}", target_index, static_id);
         }
         Instruction::StoreStatic { static_id, source } => {
             let source_index = map(*source, mapping, next_index);
             let _ = write!(output, "store_static {:?} t{}", static_id, source_index);
         }
         Instruction::LoadSlot {
-            dest,
+            target,
             pin,
             slot,
             field,
         } => {
-            let dest_index = map(*dest, mapping, next_index);
+            let target_index = map(*target, mapping, next_index);
             let slot_index = map(*slot, mapping, next_index);
             let _ = write!(
                 output,
                 "load_slot t{} {:?} t{} {}",
-                dest_index, pin, slot_index, field
+                target_index, pin, slot_index, field
             );
         }
         Instruction::StoreSlot {
@@ -208,17 +208,17 @@ fn canonicalize_instruction(
             );
         }
         Instruction::BatchRead {
-            dest,
+            target,
             hash,
             field,
             mode,
         } => {
-            let dest_index = map(*dest, mapping, next_index);
+            let target_index = map(*target, mapping, next_index);
             let hash_index = map(*hash, mapping, next_index);
             let _ = write!(
                 output,
                 "batch_read t{} t{} {} {:?}",
-                dest_index, hash_index, field, mode
+                target_index, hash_index, field, mode
             );
         }
         Instruction::BatchWrite { hash, field, value } => {
@@ -231,13 +231,13 @@ fn canonicalize_instruction(
             );
         }
         Instruction::Call {
-            dest,
+            target,
             function,
             args,
         } => {
-            if let Some(dest) = dest {
-                let dest_index = map(*dest, mapping, next_index);
-                let _ = write!(output, "call t{} {:?}", dest_index, function);
+            if let Some(target) = target {
+                let target_index = map(*target, mapping, next_index);
+                let _ = write!(output, "call t{} {:?}", target_index, function);
             } else {
                 let _ = write!(output, "call void {:?}", function);
             }
@@ -247,12 +247,12 @@ fn canonicalize_instruction(
             }
         }
         Instruction::IntrinsicCall {
-            dest,
+            target,
             function,
             args,
         } => {
-            let dest_index = map(*dest, mapping, next_index);
-            let _ = write!(output, "intrinsic t{} {:?}", dest_index, function);
+            let target_index = map(*target, mapping, next_index);
+            let _ = write!(output, "intrinsic t{} {:?}", target_index, function);
             for arg in args {
                 let arg_index = map(*arg, mapping, next_index);
                 let _ = write!(output, " t{}", arg_index);

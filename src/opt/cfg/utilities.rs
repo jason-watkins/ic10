@@ -2,16 +2,16 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ir::cfg::{Function, Instruction, Operation, TempId, Terminator};
 
-pub(super) fn instruction_dest(instruction: &Instruction) -> Option<TempId> {
+pub(super) fn instruction_target(instruction: &Instruction) -> Option<TempId> {
     match instruction {
-        Instruction::Assign { dest, .. }
-        | Instruction::Phi { dest, .. }
-        | Instruction::LoadDevice { dest, .. }
-        | Instruction::LoadSlot { dest, .. }
-        | Instruction::BatchRead { dest, .. }
-        | Instruction::IntrinsicCall { dest, .. }
-        | Instruction::LoadStatic { dest, .. } => Some(*dest),
-        Instruction::Call { dest, .. } => *dest,
+        Instruction::Assign { target, .. }
+        | Instruction::Phi { target, .. }
+        | Instruction::LoadDevice { target, .. }
+        | Instruction::LoadSlot { target, .. }
+        | Instruction::BatchRead { target, .. }
+        | Instruction::IntrinsicCall { target, .. }
+        | Instruction::LoadStatic { target, .. } => Some(*target),
+        Instruction::Call { target, .. } => *target,
         Instruction::StoreDevice { .. }
         | Instruction::StoreSlot { .. }
         | Instruction::BatchWrite { .. }
@@ -80,8 +80,8 @@ pub(super) fn build_def_map(function: &Function) -> HashMap<TempId, (usize, usiz
     let mut map = HashMap::new();
     for (block_index, block) in function.blocks.iter().enumerate() {
         for (instruction_index, instruction) in block.instructions.iter().enumerate() {
-            if let Some(dest) = instruction_dest(instruction) {
-                map.insert(dest, (block_index, instruction_index));
+            if let Some(target) = instruction_target(instruction) {
+                map.insert(target, (block_index, instruction_index));
             }
         }
     }

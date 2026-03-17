@@ -17,12 +17,12 @@ pub(super) fn algebraic_simplification(function: &mut Function) -> bool {
                     }
                 }
                 Instruction::IntrinsicCall {
-                    dest,
+                    target,
                     function: intrinsic,
                     args,
                 } => {
                     if let Some(replacement) =
-                        try_simplify_intrinsic(*dest, *intrinsic, args, &constants)
+                        try_simplify_intrinsic(*target, *intrinsic, args, &constants)
                     {
                         *instruction = replacement;
                         changed = true;
@@ -41,11 +41,11 @@ fn collect_constants(function: &Function) -> HashMap<TempId, f64> {
     for block in &function.blocks {
         for instruction in &block.instructions {
             if let Instruction::Assign {
-                dest,
+                target,
                 operation: Operation::Constant(value),
             } = instruction
             {
-                constants.insert(*dest, *value);
+                constants.insert(*target, *value);
             }
         }
     }
@@ -175,14 +175,14 @@ fn try_simplify_binary(
 }
 
 fn try_simplify_intrinsic(
-    dest: TempId,
+    target: TempId,
     intrinsic: Intrinsic,
     args: &[TempId],
     constants: &HashMap<TempId, f64>,
 ) -> Option<Instruction> {
     match (intrinsic, args) {
         (Intrinsic::Min | Intrinsic::Max, &[a, b]) if a == b => Some(Instruction::Assign {
-            dest,
+            target,
             operation: Operation::Copy(a),
         }),
         // pow(x, 0) = 1 for all x (IEEE 754 special case, including NaN and ±inf).
@@ -190,17 +190,17 @@ fn try_simplify_intrinsic(
         (Intrinsic::Pow, &[base, exponent]) => {
             if constants.get(&exponent).copied() == Some(0.0) {
                 Some(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Constant(1.0),
                 })
             } else if constants.get(&exponent).copied() == Some(1.0) {
                 Some(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Copy(base),
                 })
             } else if constants.get(&base).copied() == Some(1.0) {
                 Some(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Constant(1.0),
                 })
             } else {
@@ -212,12 +212,12 @@ fn try_simplify_intrinsic(
         (Intrinsic::Lerp, &[a, b, t]) => {
             if a == b || constants.get(&t).copied() == Some(0.0) {
                 Some(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Copy(a),
                 })
             } else if constants.get(&t).copied() == Some(1.0) {
                 Some(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Copy(b),
                 })
             } else {
@@ -226,7 +226,7 @@ fn try_simplify_intrinsic(
         }
         // clamp(x, v, v) = v for any x.
         (Intrinsic::Clamp, &[_, lo, hi]) if lo == hi => Some(Instruction::Assign {
-            dest,
+            target,
             operation: Operation::Copy(lo),
         }),
         _ => None,

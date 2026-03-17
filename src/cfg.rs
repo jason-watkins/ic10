@@ -124,92 +124,89 @@ impl<'a> Builder<'a> {
     fn lower_expression(&mut self, expression: &bound::Expression) -> TempId {
         match &expression.kind {
             ExpressionKind::Literal(value) => {
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Constant(*value),
                 });
-                dest
+                target
             }
 
             ExpressionKind::Variable(symbol_id) => {
                 if let SymbolKind::Static(static_id) = self.symbols.get(*symbol_id).kind {
-                    let dest = self.fresh_temp();
-                    self.emit(Instruction::LoadStatic {
-                        dest,
-                        static_id,
-                    });
-                    dest
+                    let target = self.fresh_temp();
+                    self.emit(Instruction::LoadStatic { target, static_id });
+                    target
                 } else {
                     let source = self.variable_temps[symbol_id];
-                    let dest = self.fresh_temp();
+                    let target = self.fresh_temp();
                     self.emit(Instruction::Assign {
-                        dest,
+                        target,
                         operation: Operation::Copy(source),
                     });
-                    dest
+                    target
                 }
             }
 
             ExpressionKind::Binary(operator, left, right) => {
                 let left_temp = self.lower_expression(left);
                 let right_temp = self.lower_expression(right);
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Binary {
                         operator: *operator,
                         left: left_temp,
                         right: right_temp,
                     },
                 });
-                dest
+                target
             }
 
             ExpressionKind::Unary(operator, operand) => {
                 let operand_temp = self.lower_expression(operand);
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Unary {
                         operator: *operator,
                         operand: operand_temp,
                     },
                 });
-                dest
+                target
             }
 
             ExpressionKind::Cast(inner, target_type) => {
                 let operand_temp = self.lower_expression(inner);
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Cast {
                         operand: operand_temp,
                         target_type: *target_type,
                         source_type: inner.ty,
                     },
                 });
-                dest
+                target
             }
 
             ExpressionKind::Call(function_symbol, args) => {
                 let arg_temps: Vec<TempId> =
                     args.iter().map(|a| self.lower_expression(a)).collect();
-                let dest = if expression.ty != Type::Unit {
+                let target = if expression.ty != Type::Unit {
                     Some(self.fresh_temp())
                 } else {
                     None
                 };
                 self.emit(Instruction::Call {
-                    dest,
+                    target,
                     function: *function_symbol,
                     args: arg_temps,
                 });
                 // `lower_expression` is only called on a Call node when the call appears
                 // as a sub-expression (argument, RHS, etc.). The binder rejects any use
-                // of a unit-returning call as a value, so `dest` is always `Some` here.
-                dest.expect(
+                // of a unit-returning call as a value, so `target` is always `Some` here.
+                target.expect(
                     "unit-returning call reached lower_expression; binder invariant violated",
                 )
             }
@@ -217,35 +214,35 @@ impl<'a> Builder<'a> {
             ExpressionKind::IntrinsicCall(function, args) => {
                 let arg_temps: Vec<TempId> =
                     args.iter().map(|a| self.lower_expression(a)).collect();
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::IntrinsicCall {
-                    dest,
+                    target,
                     function: *function,
                     args: arg_temps,
                 });
-                dest
+                target
             }
 
             ExpressionKind::DeviceRead { pin, field } => {
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::LoadDevice {
-                    dest,
+                    target,
                     pin: *pin,
                     field: field.clone(),
                 });
-                dest
+                target
             }
 
             ExpressionKind::SlotRead { pin, slot, field } => {
                 let slot_temp = self.lower_expression(slot);
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::LoadSlot {
-                    dest,
+                    target,
                     pin: *pin,
                     slot: slot_temp,
                     field: field.clone(),
                 });
-                dest
+                target
             }
 
             ExpressionKind::BatchRead {
@@ -254,14 +251,14 @@ impl<'a> Builder<'a> {
                 mode,
             } => {
                 let hash_temp = self.lower_expression(hash_expr);
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::BatchRead {
-                    dest,
+                    target,
                     hash: hash_temp,
                     field: field.clone(),
                     mode: *mode,
                 });
-                dest
+                target
             }
 
             ExpressionKind::Select {
@@ -272,16 +269,16 @@ impl<'a> Builder<'a> {
                 let cond_temp = self.lower_expression(condition);
                 let true_temp = self.lower_expression(if_true);
                 let false_temp = self.lower_expression(if_false);
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Select {
                         condition: cond_temp,
                         if_true: true_temp,
                         if_false: false_temp,
                     },
                 });
-                dest
+                target
             }
         }
     }
@@ -298,12 +295,12 @@ impl<'a> Builder<'a> {
         match statement {
             Statement::Let(let_statement) => {
                 let init_temp = self.lower_expression(&let_statement.init);
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::Assign {
-                    dest,
+                    target,
                     operation: Operation::Copy(init_temp),
                 });
-                self.record_variable_definition(let_statement.symbol_id, dest);
+                self.record_variable_definition(let_statement.symbol_id, target);
             }
 
             Statement::Assign(assign_statement) => match &assign_statement.target {
@@ -315,12 +312,12 @@ impl<'a> Builder<'a> {
                             source: value_temp,
                         });
                     } else {
-                        let dest = self.fresh_temp();
+                        let target = self.fresh_temp();
                         self.emit(Instruction::Assign {
-                            dest,
+                            target,
                             operation: Operation::Copy(value_temp),
                         });
-                        self.record_variable_definition(*symbol_id, dest);
+                        self.record_variable_definition(*symbol_id, target);
                     }
                 }
 
@@ -443,13 +440,13 @@ impl<'a> Builder<'a> {
             ExpressionKind::Call(function_symbol, args) => {
                 let arg_temps: Vec<TempId> =
                     args.iter().map(|a| self.lower_expression(a)).collect();
-                let dest = if statement.expression.ty != Type::Unit {
+                let target = if statement.expression.ty != Type::Unit {
                     Some(self.fresh_temp())
                 } else {
                     None
                 };
                 self.emit(Instruction::Call {
-                    dest,
+                    target,
                     function: *function_symbol,
                     args: arg_temps,
                 });
@@ -457,9 +454,9 @@ impl<'a> Builder<'a> {
             ExpressionKind::IntrinsicCall(function, args) => {
                 let arg_temps: Vec<TempId> =
                     args.iter().map(|a| self.lower_expression(a)).collect();
-                let dest = self.fresh_temp();
+                let target = self.fresh_temp();
                 self.emit(Instruction::IntrinsicCall {
-                    dest,
+                    target,
                     function: *function,
                     args: arg_temps,
                 });
@@ -622,7 +619,7 @@ impl<'a> Builder<'a> {
         } else {
             let t = self.fresh_temp();
             self.emit(Instruction::Assign {
-                dest: t,
+                target: t,
                 operation: Operation::Constant(1.0),
             });
             t
@@ -638,7 +635,7 @@ impl<'a> Builder<'a> {
             if inclusive {
                 // (a..=b).rev(): start at b, count down to a
                 self.emit(Instruction::Assign {
-                    dest: loop_var,
+                    target: loop_var,
                     operation: Operation::Copy(upper_temp),
                 });
                 bound_temp = lower_temp;
@@ -646,7 +643,7 @@ impl<'a> Builder<'a> {
                 // (a..b).rev(): start at b - step, count down to a
                 let start = self.fresh_temp();
                 self.emit(Instruction::Assign {
-                    dest: start,
+                    target: start,
                     operation: Operation::Binary {
                         operator: BinaryOperator::Sub,
                         left: upper_temp,
@@ -654,7 +651,7 @@ impl<'a> Builder<'a> {
                     },
                 });
                 self.emit(Instruction::Assign {
-                    dest: loop_var,
+                    target: loop_var,
                     operation: Operation::Copy(start),
                 });
                 bound_temp = lower_temp;
@@ -662,7 +659,7 @@ impl<'a> Builder<'a> {
         } else {
             // Ascending: start at lower, bound is upper
             self.emit(Instruction::Assign {
-                dest: loop_var,
+                target: loop_var,
                 operation: Operation::Copy(lower_temp),
             });
             bound_temp = upper_temp;
@@ -693,7 +690,7 @@ impl<'a> Builder<'a> {
         };
         let current_loop_var = self.variable_temps[&for_statement.variable];
         self.emit(Instruction::Assign {
-            dest: guard_cond,
+            target: guard_cond,
             operation: Operation::Binary {
                 operator: guard_operator,
                 left: current_loop_var,
@@ -732,7 +729,7 @@ impl<'a> Builder<'a> {
         let current_var = self.variable_temps[&for_statement.variable];
         let incremented = self.fresh_temp();
         self.emit(Instruction::Assign {
-            dest: incremented,
+            target: incremented,
             operation: Operation::Binary {
                 operator: increment_operator,
                 left: current_var,
@@ -743,7 +740,7 @@ impl<'a> Builder<'a> {
 
         let back_cond = self.fresh_temp();
         self.emit(Instruction::Assign {
-            dest: back_cond,
+            target: back_cond,
             operation: Operation::Binary {
                 operator: back_edge_operator,
                 left: incremented,
@@ -785,7 +782,7 @@ fn lower_function(
     for (index, parameter) in function.parameters.iter().enumerate() {
         let temp = builder.fresh_temp();
         builder.emit(Instruction::Assign {
-            dest: temp,
+            target: temp,
             operation: Operation::Parameter { index },
         });
         builder.record_variable_definition(parameter.symbol_id, temp);
@@ -1047,12 +1044,12 @@ mod tests {
         assert_eq!(instructions.len(), 2);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 42.0
+            Instruction::Assign { target: TempId(0), operation: Operation::Constant(v) } if *v == 42.0
         ));
         assert!(matches!(
             &instructions[1],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Copy(TempId(0))
             }
         ));
@@ -1184,18 +1181,18 @@ mod tests {
         assert_eq!(instructions.len(), 4);
         assert!(matches!(
             &instructions[0],
-            Instruction::LoadDevice { dest: TempId(0), pin: DevicePin::D0, field } if field == "Temperature"
+            Instruction::LoadDevice { target: TempId(0), pin: DevicePin::D0, field } if field == "Temperature"
         ));
         assert!(matches!(
             &instructions[1],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Copy(TempId(0))
             }
         ));
         assert!(matches!(
             &instructions[2],
-            Instruction::Assign { dest: TempId(2), operation: Operation::Constant(v) } if *v == 1.0
+            Instruction::Assign { target: TempId(2), operation: Operation::Constant(v) } if *v == 1.0
         ));
         assert!(matches!(
             &instructions[3],
@@ -1220,7 +1217,7 @@ mod tests {
         assert_eq!(instructions.len(), 2);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 2.5
+            Instruction::Assign { target: TempId(0), operation: Operation::Constant(v) } if *v == 2.5
         ));
         assert!(matches!(
             &instructions[1],
@@ -1238,20 +1235,20 @@ mod tests {
         assert_eq!(instructions.len(), 5);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 1.0
+            Instruction::Assign { target: TempId(0), operation: Operation::Constant(v) } if *v == 1.0
         ));
         assert!(matches!(
             &instructions[1],
-            Instruction::Assign { dest: TempId(1), operation: Operation::Constant(v) } if *v == 1.0
+            Instruction::Assign { target: TempId(1), operation: Operation::Constant(v) } if *v == 1.0
         ));
         assert!(matches!(
             &instructions[2],
-            Instruction::Assign { dest: TempId(2), operation: Operation::Constant(v) } if *v == 2.0
+            Instruction::Assign { target: TempId(2), operation: Operation::Constant(v) } if *v == 2.0
         ));
         assert!(matches!(
             &instructions[3],
             Instruction::Assign {
-                dest: TempId(3),
+                target: TempId(3),
                 operation: Operation::Select {
                     condition: TempId(0),
                     if_true: TempId(1),
@@ -1262,7 +1259,7 @@ mod tests {
         assert!(matches!(
             &instructions[4],
             Instruction::Assign {
-                dest: TempId(4),
+                target: TempId(4),
                 operation: Operation::Copy(TempId(3))
             }
         ));
@@ -1325,7 +1322,7 @@ mod tests {
         assert_eq!(instructions.len(), 1);
         assert!(matches!(
             &instructions[0],
-            Instruction::Call { dest: None, function, args }
+            Instruction::Call { target: None, function, args }
             if *function == helper.symbol_id && args.is_empty()
         ));
     }
@@ -1338,17 +1335,17 @@ mod tests {
         assert_eq!(instructions.len(), 3);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 4.0
+            Instruction::Assign { target: TempId(0), operation: Operation::Constant(v) } if *v == 4.0
         ));
         assert!(matches!(
             &instructions[1],
-            Instruction::IntrinsicCall { dest: TempId(1), function: Intrinsic::Sqrt, args }
+            Instruction::IntrinsicCall { target: TempId(1), function: Intrinsic::Sqrt, args }
             if args == &[TempId(0)]
         ));
         assert!(matches!(
             &instructions[2],
             Instruction::Assign {
-                dest: TempId(2),
+                target: TempId(2),
                 operation: Operation::Copy(TempId(1))
             }
         ));
@@ -1362,16 +1359,16 @@ mod tests {
         assert_eq!(instructions.len(), 4);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 1.0
+            Instruction::Assign { target: TempId(0), operation: Operation::Constant(v) } if *v == 1.0
         ));
         assert!(matches!(
             &instructions[1],
-            Instruction::Assign { dest: TempId(1), operation: Operation::Constant(v) } if *v == 2.0
+            Instruction::Assign { target: TempId(1), operation: Operation::Constant(v) } if *v == 2.0
         ));
         assert!(matches!(
             &instructions[2],
             Instruction::Assign {
-                dest: TempId(2),
+                target: TempId(2),
                 operation: Operation::Binary {
                     operator: BinaryOperator::Add,
                     left: TempId(0),
@@ -1382,7 +1379,7 @@ mod tests {
         assert!(matches!(
             &instructions[3],
             Instruction::Assign {
-                dest: TempId(3),
+                target: TempId(3),
                 operation: Operation::Copy(TempId(2))
             }
         ));
@@ -1396,12 +1393,12 @@ mod tests {
         assert_eq!(instructions.len(), 3);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 42.0
+            Instruction::Assign { target: TempId(0), operation: Operation::Constant(v) } if *v == 42.0
         ));
         assert!(matches!(
             &instructions[1],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Cast {
                     operand: TempId(0),
                     target_type: Type::F64,
@@ -1412,7 +1409,7 @@ mod tests {
         assert!(matches!(
             &instructions[2],
             Instruction::Assign {
-                dest: TempId(2),
+                target: TempId(2),
                 operation: Operation::Copy(TempId(1))
             }
         ));
@@ -1571,27 +1568,27 @@ mod tests {
         assert_eq!(instructions.len(), 6);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 0.0
+            Instruction::Assign { target: TempId(0), operation: Operation::Constant(v) } if *v == 0.0
         ));
         assert!(matches!(
             &instructions[1],
-            Instruction::LoadSlot { dest: TempId(1), pin: DevicePin::D0, slot: TempId(0), field }
+            Instruction::LoadSlot { target: TempId(1), pin: DevicePin::D0, slot: TempId(0), field }
             if field == "Occupied"
         ));
         assert!(matches!(
             &instructions[2],
             Instruction::Assign {
-                dest: TempId(2),
+                target: TempId(2),
                 operation: Operation::Copy(TempId(1))
             }
         ));
         assert!(matches!(
             &instructions[3],
-            Instruction::Assign { dest: TempId(3), operation: Operation::Constant(v) } if *v == 1.0
+            Instruction::Assign { target: TempId(3), operation: Operation::Constant(v) } if *v == 1.0
         ));
         assert!(matches!(
             &instructions[4],
-            Instruction::Assign { dest: TempId(4), operation: Operation::Constant(v) } if *v == 1.0
+            Instruction::Assign { target: TempId(4), operation: Operation::Constant(v) } if *v == 1.0
         ));
         assert!(matches!(
             &instructions[5],
@@ -1612,19 +1609,19 @@ mod tests {
         assert!(matches!(
             &instructions[0],
             Instruction::Assign {
-                dest: TempId(0),
+                target: TempId(0),
                 operation: Operation::Constant(_)
             }
         ));
         assert!(matches!(
             &instructions[1],
-            Instruction::BatchRead { dest: TempId(1), hash: TempId(0), field, mode: BatchMode::Average }
+            Instruction::BatchRead { target: TempId(1), hash: TempId(0), field, mode: BatchMode::Average }
             if field == "Ratio"
         ));
         assert!(matches!(
             &instructions[2],
             Instruction::Assign {
-                dest: TempId(2),
+                target: TempId(2),
                 operation: Operation::Copy(TempId(1))
             }
         ));
@@ -1652,12 +1649,12 @@ mod tests {
         assert_eq!(instructions.len(), 3);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 42.0
+            Instruction::Assign { target: TempId(0), operation: Operation::Constant(v) } if *v == 42.0
         ));
         assert!(matches!(
             &instructions[1],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Unary {
                     operator: UnaryOperator::Neg,
                     operand: TempId(0)
@@ -1667,7 +1664,7 @@ mod tests {
         assert!(matches!(
             &instructions[2],
             Instruction::Assign {
-                dest: TempId(2),
+                target: TempId(2),
                 operation: Operation::Copy(TempId(1))
             }
         ));
@@ -1681,23 +1678,23 @@ mod tests {
         assert_eq!(instructions.len(), 4);
         assert!(matches!(
             &instructions[0],
-            Instruction::Assign { dest: TempId(0), operation: Operation::Constant(v) } if *v == 1.0
+            Instruction::Assign { target: TempId(0), operation: Operation::Constant(v) } if *v == 1.0
         ));
         assert!(matches!(
             &instructions[1],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Copy(TempId(0))
             }
         ));
         assert!(matches!(
             &instructions[2],
-            Instruction::Assign { dest: TempId(2), operation: Operation::Constant(v) } if *v == 2.0
+            Instruction::Assign { target: TempId(2), operation: Operation::Constant(v) } if *v == 2.0
         ));
         assert!(matches!(
             &instructions[3],
             Instruction::Assign {
-                dest: TempId(3),
+                target: TempId(3),
                 operation: Operation::Copy(TempId(2))
             }
         ));

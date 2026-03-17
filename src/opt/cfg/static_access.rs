@@ -48,21 +48,21 @@ pub(super) fn optimize_static_access(function: &mut Function) -> bool {
 
         for index in 0..block.instructions.len() {
             match &block.instructions[index] {
-                Instruction::LoadStatic { dest, static_id } => {
+                Instruction::LoadStatic { target, static_id } => {
                     let static_id = *static_id;
-                    let dest = *dest;
+                    let target = *target;
                     if let Some(entry) = known.get(&static_id) {
                         let source = match *entry {
                             Known::Loaded(temp) | Known::Stored(temp) => temp,
                         };
                         block.instructions[index] = Instruction::Assign {
-                            dest,
+                            target,
                             operation: Operation::Copy(source),
                         };
                         changed = true;
                     }
-                    // Whether rewritten or not, record that `dest` now holds this static.
-                    known.insert(static_id, Known::Loaded(dest));
+                    // Whether rewritten or not, record that `target` now holds this static.
+                    known.insert(static_id, Known::Loaded(target));
                     // A load observes the static, so the preceding store is no longer dead.
                     last_store_index.remove(&static_id);
                 }
@@ -193,8 +193,8 @@ fn transfer(
     let mut available = available_in.clone();
     for instruction in instructions {
         match instruction {
-            Instruction::LoadStatic { dest, static_id } => {
-                available.insert(*static_id, *dest);
+            Instruction::LoadStatic { target, static_id } => {
+                available.insert(*static_id, *target);
             }
             Instruction::StoreStatic { static_id, source } => {
                 available.insert(*static_id, *source);
@@ -256,11 +256,11 @@ mod tests {
     fn redundant_load_eliminated() {
         let mut function = make_function(vec![
             Instruction::LoadStatic {
-                dest: TempId(0),
+                target: TempId(0),
                 static_id: StaticId(0),
             },
             Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(0),
             },
         ]);
@@ -269,7 +269,7 @@ mod tests {
         assert!(matches!(
             &function.blocks[0].instructions[1],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Copy(TempId(0))
             }
         ));
@@ -279,7 +279,7 @@ mod tests {
     fn store_to_load_forwarded() {
         let mut function = make_function(vec![
             Instruction::Assign {
-                dest: TempId(0),
+                target: TempId(0),
                 operation: Operation::Constant(42.0),
             },
             Instruction::StoreStatic {
@@ -287,7 +287,7 @@ mod tests {
                 source: TempId(0),
             },
             Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(0),
             },
         ]);
@@ -296,7 +296,7 @@ mod tests {
         assert!(matches!(
             &function.blocks[0].instructions[2],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Copy(TempId(0))
             }
         ));
@@ -306,7 +306,7 @@ mod tests {
     fn dead_store_eliminated() {
         let mut function = make_function(vec![
             Instruction::Assign {
-                dest: TempId(0),
+                target: TempId(0),
                 operation: Operation::Constant(1.0),
             },
             Instruction::StoreStatic {
@@ -314,7 +314,7 @@ mod tests {
                 source: TempId(0),
             },
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Constant(2.0),
             },
             Instruction::StoreStatic {
@@ -338,16 +338,16 @@ mod tests {
     fn call_invalidates_known_values() {
         let mut function = make_function(vec![
             Instruction::LoadStatic {
-                dest: TempId(0),
+                target: TempId(0),
                 static_id: StaticId(0),
             },
             Instruction::Call {
-                dest: None,
+                target: None,
                 function: SymbolId(1),
                 args: Vec::new(),
             },
             Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(0),
             },
         ]);
@@ -356,7 +356,7 @@ mod tests {
         assert!(matches!(
             &function.blocks[0].instructions[2],
             Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(0)
             }
         ));
@@ -366,12 +366,12 @@ mod tests {
     fn yield_invalidates_known_values() {
         let mut function = make_function(vec![
             Instruction::LoadStatic {
-                dest: TempId(0),
+                target: TempId(0),
                 static_id: StaticId(0),
             },
             Instruction::Yield,
             Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(0),
             },
         ]);
@@ -383,19 +383,19 @@ mod tests {
     fn different_statics_tracked_independently() {
         let mut function = make_function(vec![
             Instruction::LoadStatic {
-                dest: TempId(0),
+                target: TempId(0),
                 static_id: StaticId(0),
             },
             Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(1),
             },
             Instruction::LoadStatic {
-                dest: TempId(2),
+                target: TempId(2),
                 static_id: StaticId(0),
             },
             Instruction::LoadStatic {
-                dest: TempId(3),
+                target: TempId(3),
                 static_id: StaticId(1),
             },
         ]);
@@ -404,14 +404,14 @@ mod tests {
         assert!(matches!(
             &function.blocks[0].instructions[2],
             Instruction::Assign {
-                dest: TempId(2),
+                target: TempId(2),
                 operation: Operation::Copy(TempId(0))
             }
         ));
         assert!(matches!(
             &function.blocks[0].instructions[3],
             Instruction::Assign {
-                dest: TempId(3),
+                target: TempId(3),
                 operation: Operation::Copy(TempId(1))
             }
         ));
@@ -421,11 +421,11 @@ mod tests {
     fn store_to_different_static_does_not_invalidate() {
         let mut function = make_function(vec![
             Instruction::LoadStatic {
-                dest: TempId(0),
+                target: TempId(0),
                 static_id: StaticId(0),
             },
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Constant(1.0),
             },
             Instruction::StoreStatic {
@@ -433,7 +433,7 @@ mod tests {
                 source: TempId(1),
             },
             Instruction::LoadStatic {
-                dest: TempId(2),
+                target: TempId(2),
                 static_id: StaticId(0),
             },
         ]);
@@ -442,7 +442,7 @@ mod tests {
         assert!(matches!(
             &function.blocks[0].instructions[3],
             Instruction::Assign {
-                dest: TempId(2),
+                target: TempId(2),
                 operation: Operation::Copy(TempId(0))
             }
         ));
@@ -452,7 +452,7 @@ mod tests {
     fn dead_store_not_eliminated_when_load_intervenes() {
         let mut function = make_function(vec![
             Instruction::Assign {
-                dest: TempId(0),
+                target: TempId(0),
                 operation: Operation::Constant(1.0),
             },
             Instruction::StoreStatic {
@@ -460,11 +460,11 @@ mod tests {
                 source: TempId(0),
             },
             Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(0),
             },
             Instruction::Assign {
-                dest: TempId(2),
+                target: TempId(2),
                 operation: Operation::Constant(2.0),
             },
             Instruction::StoreStatic {
@@ -526,12 +526,12 @@ mod tests {
     fn cross_block_load_forwarded() {
         let mut function = make_two_block_function(
             vec![Instruction::LoadStatic {
-                dest: TempId(0),
+                target: TempId(0),
                 static_id: StaticId(0),
             }],
             Terminator::Jump(BlockId(1)),
             vec![Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(0),
             }],
             Terminator::Return(None),
@@ -541,7 +541,7 @@ mod tests {
         assert!(matches!(
             &function.blocks[1].instructions[0],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Copy(TempId(0))
             }
         ));
@@ -552,7 +552,7 @@ mod tests {
         let mut function = make_two_block_function(
             vec![
                 Instruction::Assign {
-                    dest: TempId(0),
+                    target: TempId(0),
                     operation: Operation::Constant(42.0),
                 },
                 Instruction::StoreStatic {
@@ -562,7 +562,7 @@ mod tests {
             ],
             Terminator::Jump(BlockId(1)),
             vec![Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(0),
             }],
             Terminator::Return(None),
@@ -572,7 +572,7 @@ mod tests {
         assert!(matches!(
             &function.blocks[1].instructions[0],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Copy(TempId(0))
             }
         ));
@@ -583,18 +583,18 @@ mod tests {
         let mut function = make_two_block_function(
             vec![
                 Instruction::LoadStatic {
-                    dest: TempId(0),
+                    target: TempId(0),
                     static_id: StaticId(0),
                 },
                 Instruction::Call {
-                    dest: None,
+                    target: None,
                     function: SymbolId(1),
                     args: Vec::new(),
                 },
             ],
             Terminator::Jump(BlockId(1)),
             vec![Instruction::LoadStatic {
-                dest: TempId(1),
+                target: TempId(1),
                 static_id: StaticId(0),
             }],
             Terminator::Return(None),
@@ -618,7 +618,7 @@ mod tests {
                     id: BlockId(0),
                     role: BlockRole::Entry,
                     instructions: vec![Instruction::LoadStatic {
-                        dest: TempId(0),
+                        target: TempId(0),
                         static_id: StaticId(0),
                     }],
                     terminator: Terminator::Branch {
@@ -649,7 +649,7 @@ mod tests {
                     id: BlockId(3),
                     role: BlockRole::Generic,
                     instructions: vec![Instruction::LoadStatic {
-                        dest: TempId(1),
+                        target: TempId(1),
                         static_id: StaticId(0),
                     }],
                     terminator: Terminator::Return(None),
@@ -669,7 +669,7 @@ mod tests {
         assert!(matches!(
             &function.blocks[3].instructions[0],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Copy(TempId(0))
             }
         ));
@@ -690,7 +690,7 @@ mod tests {
                     id: BlockId(0),
                     role: BlockRole::Entry,
                     instructions: vec![Instruction::LoadStatic {
-                        dest: TempId(0),
+                        target: TempId(0),
                         static_id: StaticId(0),
                     }],
                     terminator: Terminator::Branch {
@@ -705,7 +705,7 @@ mod tests {
                     id: BlockId(1),
                     role: BlockRole::Generic,
                     instructions: vec![Instruction::Call {
-                        dest: None,
+                        target: None,
                         function: SymbolId(1),
                         args: Vec::new(),
                     }],
@@ -725,7 +725,7 @@ mod tests {
                     id: BlockId(3),
                     role: BlockRole::Generic,
                     instructions: vec![Instruction::LoadStatic {
-                        dest: TempId(1),
+                        target: TempId(1),
                         static_id: StaticId(0),
                     }],
                     terminator: Terminator::Return(None),
@@ -758,7 +758,7 @@ mod tests {
                     id: BlockId(0),
                     role: BlockRole::Entry,
                     instructions: vec![Instruction::LoadStatic {
-                        dest: TempId(0),
+                        target: TempId(0),
                         static_id: StaticId(0),
                     }],
                     terminator: Terminator::Jump(BlockId(1)),
@@ -777,7 +777,7 @@ mod tests {
                     id: BlockId(2),
                     role: BlockRole::Generic,
                     instructions: vec![Instruction::LoadStatic {
-                        dest: TempId(1),
+                        target: TempId(1),
                         static_id: StaticId(0),
                     }],
                     terminator: Terminator::Return(None),
@@ -797,7 +797,7 @@ mod tests {
         assert!(matches!(
             &function.blocks[2].instructions[0],
             Instruction::Assign {
-                dest: TempId(1),
+                target: TempId(1),
                 operation: Operation::Copy(TempId(0))
             }
         ));

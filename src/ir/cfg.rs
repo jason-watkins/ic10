@@ -124,16 +124,19 @@ pub struct BasicBlock {
 /// A three-address instruction in the CFG.
 #[derive(Debug, Clone)]
 pub enum Instruction {
-    /// `dest = operation`
-    Assign { dest: TempId, operation: Operation },
+    /// `target = operation`
+    Assign {
+        target: TempId,
+        operation: Operation,
+    },
     /// Phi function — inserted by SSA construction, not by CFG builder.
     Phi {
-        dest: TempId,
+        target: TempId,
         args: Vec<(TempId, BlockId)>,
     },
-    /// `dest = load device.field`
+    /// `target = load device.field`
     LoadDevice {
-        dest: TempId,
+        target: TempId,
         pin: DevicePin,
         field: String,
     },
@@ -143,9 +146,9 @@ pub enum Instruction {
         field: String,
         source: TempId,
     },
-    /// `dest = load device.slot(slot_index).field`
+    /// `target = load device.slot(slot_index).field`
     LoadSlot {
-        dest: TempId,
+        target: TempId,
         pin: DevicePin,
         slot: TempId,
         field: String,
@@ -157,9 +160,9 @@ pub enum Instruction {
         field: String,
         source: TempId,
     },
-    /// `dest = batch_read(hash, field, mode)`
+    /// `target = batch_read(hash, field, mode)`
     BatchRead {
-        dest: TempId,
+        target: TempId,
         hash: TempId,
         field: String,
         mode: BatchMode,
@@ -170,15 +173,15 @@ pub enum Instruction {
         field: String,
         value: TempId,
     },
-    /// `dest = call function(args)`
+    /// `target = call function(args)`
     Call {
-        dest: Option<TempId>,
+        target: Option<TempId>,
         function: SymbolId,
         args: Vec<TempId>,
     },
-    /// `dest = intrinsic(args)`
+    /// `target = intrinsic(args)`
     IntrinsicCall {
-        dest: TempId,
+        target: TempId,
         function: Intrinsic,
         args: Vec<TempId>,
     },
@@ -186,8 +189,8 @@ pub enum Instruction {
     Sleep { duration: TempId },
     /// `yield`
     Yield,
-    /// `dest = get db <static_address>` — load a static variable from its home location.
-    LoadStatic { dest: TempId, static_id: StaticId },
+    /// `target = get db <static_address>` — load a static variable from its home location.
+    LoadStatic { target: TempId, static_id: StaticId },
     /// `poke <static_address> source` — store a value to a static variable's home location.
     StoreStatic { static_id: StaticId, source: TempId },
 }
@@ -203,24 +206,24 @@ pub enum Operation {
     /// caller before `jal`; the callee emits no instruction for this operation.
     /// The `index` is the 0-based position in the parameter list.
     Parameter { index: usize },
-    /// Binary arithmetic/logic/comparison: `dest = lhs op rhs`
+    /// Binary arithmetic/logic/comparison: `target = lhs op rhs`
     Binary {
         operator: BinaryOperator,
         left: TempId,
         right: TempId,
     },
-    /// Unary operator: `dest = op operand`
+    /// Unary operator: `target = op operand`
     Unary {
         operator: UnaryOperator,
         operand: TempId,
     },
-    /// Type cast: `dest = operand as type`
+    /// Type cast: `target = operand as type`
     Cast {
         operand: TempId,
         target_type: Type,
         source_type: Type,
     },
-    /// Select: `dest = select(cond, if_true, if_false)`
+    /// Select: `target = select(cond, if_true, if_false)`
     Select {
         condition: TempId,
         if_true: TempId,
