@@ -270,12 +270,12 @@ fn while_loop() {
     .unwrap();
     assert_eq!(
         output.trim(),
-        "move r1 0\n\
-         add r0 r1 1\n\
+        "move r3 0\n\
+         add r0 r3 1\n\
          blt r0 5 5\n\
          s d0 Setting r0\n\
          hcf\n\
-         move r1 r0\n\
+         move r3 r0\n\
          j 1",
     );
 }

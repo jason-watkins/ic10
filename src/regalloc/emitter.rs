@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::ir::DevicePin;
 use crate::ir::bound::{StaticVariable, SymbolTable};
 use crate::ir::cfg::{
     BasicBlock, BlockId, BlockRole, Function, Instruction, Operation, TempId, Terminator,
 };
-use crate::ir::DevicePin;
 use crate::ir::{BinaryOperator, Intrinsic, Type, UnaryOperator};
 
 use super::allocator::{AllocationResult, SpillRecord};
@@ -168,6 +168,7 @@ impl<'a> Emitter<'a> {
             BlockRole::LoopStart(n) => format!("{}Loop{}Start", prefix, n),
             BlockRole::LoopBody(n) => format!("{}Loop{}Body", prefix, n),
             BlockRole::LoopContinue(n) => format!("{}Loop{}Continue", prefix, n),
+            BlockRole::LoopPreHeader(n) => format!("{}Loop{}PreHeader", prefix, n),
             BlockRole::LoopEnd(n) => format!("{}Loop{}End", prefix, n),
             BlockRole::IfTrue(n) => format!("{}If{}True", prefix, n),
             BlockRole::IfFalse(n) => format!("{}If{}False", prefix, n),

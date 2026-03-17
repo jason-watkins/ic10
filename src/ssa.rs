@@ -304,7 +304,7 @@ fn rename_variables(
     definition_map: &HashMap<TempId, SymbolId>,
     phi_defs: &HashMap<(BlockId, SymbolId), TempId>,
 ) {
-    let children = build_dominator_tree_children(function);
+    let children = function.dominator_tree_children();
 
     // Build an extended definition map that includes phi destinations.
     let mut extended_definition_map = definition_map.clone();
@@ -443,17 +443,7 @@ struct RenameFrame {
     phase: RenamePhase,
 }
 
-/// Build the dominator tree as a map from parent to children.
-fn build_dominator_tree_children(function: &Function) -> HashMap<BlockId, Vec<BlockId>> {
-    let mut children: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
-    for (&block, &idom) in &function.immediate_dominators {
-        children.entry(idom).or_default().push(block);
-    }
-    for (_, kids) in children.iter_mut() {
-        kids.sort();
-    }
-    children
-}
+
 
 /// Replace all variable-definition-temp operands in an instruction with the
 /// current reaching definition from the per-variable stacks.

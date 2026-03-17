@@ -18,6 +18,8 @@ use ic20c::ssa;
 enum Feature {
     #[value(name = "constant-propagation")]
     ConstantPropagation,
+    #[value(name = "algebraic-simplification")]
+    AlgebraicSimplification,
     #[value(name = "copy-propagation")]
     CopyPropagation,
     #[value(name = "global-value-numbering")]
@@ -32,10 +34,16 @@ enum Feature {
     Inline,
     #[value(name = "branch-fusion")]
     BranchFusion,
+    #[value(name = "ic10-simplification")]
+    Ic10Simplification,
     #[value(name = "static-access")]
     StaticAccess,
+    #[value(name = "loop-invariant-code-motion")]
+    LoopInvariantCodeMotion,
     #[value(name = "symbolic-labels")]
     SymbolicLabels,
+    #[value(name = "sccp")]
+    Sccp,
 }
 
 /// A feature toggle parsed from `-f <name>` (enable) or `-f no-<name>` (disable).
@@ -57,8 +65,10 @@ impl FromStr for FeatureToggle {
         let feature = <Feature as ValueEnum>::from_str(name, true).map_err(|_| {
             format!(
                 "unknown feature '{}'; valid features are: \
-                 constant-propagation, copy-propagation, global-value-numbering, \
-                 dead-code-elimination, block-simplification, block-deduplication, static-access, inline, symbolic-labels",
+                 constant-propagation, algebraic-simplification, copy-propagation, global-value-numbering, \
+                 dead-code-elimination, block-simplification, block-deduplication, static-access, \
+                 loop-invariant-code-motion, inline, \
+                 branch-fusion, ic10-simplification, symbolic-labels, sccp",
                 name
             )
         })?;
@@ -70,15 +80,19 @@ fn apply_feature_toggles(features: &mut Features, toggles: &[FeatureToggle]) {
     for toggle in toggles {
         match toggle.feature {
             Feature::ConstantPropagation => features.constant_propagation = toggle.enable,
+            Feature::AlgebraicSimplification => features.algebraic_simplification = toggle.enable,
             Feature::CopyPropagation => features.copy_propagation = toggle.enable,
             Feature::GlobalValueNumbering => features.global_value_numbering = toggle.enable,
             Feature::DeadCodeElimination => features.dead_code_elimination = toggle.enable,
             Feature::BlockSimplification => features.block_simplification = toggle.enable,
             Feature::BlockDeduplication => features.block_deduplication = toggle.enable,
             Feature::StaticAccess => features.static_access = toggle.enable,
+            Feature::LoopInvariantCodeMotion => features.loop_invariant_code_motion = toggle.enable,
             Feature::Inline => features.inline = toggle.enable,
             Feature::BranchFusion => features.branch_fusion = toggle.enable,
+            Feature::Ic10Simplification => features.ic10_simplification = toggle.enable,
             Feature::SymbolicLabels => features.symbolic_labels = toggle.enable,
+            Feature::Sccp => features.sccp = toggle.enable,
         }
     }
 }
@@ -163,8 +177,9 @@ struct Arguments {
 
     /// Enable or disable an individual optimization pass or code generation feature.
     /// May be passed multiple times. Use `no-<name>` to disable (e.g. `-f no-inline`).
-    /// Valid features: constant-propagation, copy-propagation, global-value-numbering,
-    /// dead-code-elimination, block-simplification, inline, branch-fusion, symbolic-labels.
+    /// Valid features: constant-propagation, algebraic-simplification, copy-propagation,
+    /// global-value-numbering, dead-code-elimination, block-simplification, inline,
+    /// branch-fusion, ic10-simplification, symbolic-labels.
     #[arg(short = 'f', long = "feature", value_name = "FEATURE")]
     features: Vec<FeatureToggle>,
 }

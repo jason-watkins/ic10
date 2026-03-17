@@ -1,28 +1,22 @@
 use std::collections::HashMap;
 
-use crate::ir::cfg::{Function, Instruction, Operation, TempId};
+use crate::ir::cfg::{BlockId, Function, Instruction, Operation, TempId};
 use crate::ir::{BinaryOperator, Type, UnaryOperator};
 
 use super::utilities::apply_substitutions;
 
 pub(super) fn global_value_numbering(function: &mut Function) -> bool {
     let mut substitutions: HashMap<TempId, TempId> = HashMap::new();
+    let mut value_table: HashMap<ValueExpression, TempId> = HashMap::new();
+    let children = function.dominator_tree_children();
 
-    for block in &function.blocks {
-        let mut value_table: HashMap<ValueExpression, TempId> = HashMap::new();
-
-        for instruction in &block.instructions {
-            if let Instruction::Assign { dest, operation } = instruction
-                && let Some(expression) = operation_to_value_expression(operation)
-            {
-                if let Some(&leader) = value_table.get(&expression) {
-                    substitutions.insert(*dest, leader);
-                } else {
-                    value_table.insert(expression, *dest);
-                }
-            }
-        }
-    }
+    walk_dominator_tree(
+        function,
+        function.entry,
+        &children,
+        &mut value_table,
+        &mut substitutions,
+    );
 
     if substitutions.is_empty() {
         return false;
@@ -30,6 +24,40 @@ pub(super) fn global_value_numbering(function: &mut Function) -> bool {
 
     apply_substitutions(function, &substitutions);
     true
+}
+
+fn walk_dominator_tree(
+    function: &Function,
+    block_id: BlockId,
+    children: &HashMap<BlockId, Vec<BlockId>>,
+    value_table: &mut HashMap<ValueExpression, TempId>,
+    substitutions: &mut HashMap<TempId, TempId>,
+) {
+    let block = &function.blocks[block_id.0];
+    let mut added: Vec<ValueExpression> = Vec::new();
+
+    for instruction in &block.instructions {
+        if let Instruction::Assign { dest, operation } = instruction
+            && let Some(expression) = operation_to_value_expression(operation)
+        {
+            if let Some(&leader) = value_table.get(&expression) {
+                substitutions.insert(*dest, leader);
+            } else {
+                value_table.insert(expression.clone(), *dest);
+                added.push(expression);
+            }
+        }
+    }
+
+    if let Some(block_children) = children.get(&block_id) {
+        for &child in block_children {
+            walk_dominator_tree(function, child, children, value_table, substitutions);
+        }
+    }
+
+    for key in added {
+        value_table.remove(&key);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -48,6 +48,33 @@ impl Function {
         self.next_temp += 1;
         id
     }
+
+    /// Build the dominator tree as a map from parent block to its children.
+    pub fn dominator_tree_children(&self) -> HashMap<BlockId, Vec<BlockId>> {
+        let mut children: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
+        for (&child, &parent) in &self.immediate_dominators {
+            children.entry(parent).or_default().push(child);
+        }
+        for kids in children.values_mut() {
+            kids.sort();
+        }
+        children
+    }
+
+    /// Returns `true` if block `a` dominates block `b` (including `a == b`).
+    pub fn dominates(&self, a: BlockId, b: BlockId) -> bool {
+        if a == b {
+            return true;
+        }
+        let mut current = b;
+        while let Some(&dominator) = self.immediate_dominators.get(&current) {
+            if dominator == a {
+                return true;
+            }
+            current = dominator;
+        }
+        false
+    }
 }
 
 /// The structural role a basic block plays in the program's control flow.
@@ -63,6 +90,8 @@ pub enum BlockRole {
     LoopBody(usize),
     /// For-loop increment step (continue target between body and header).
     LoopContinue(usize),
+    /// Pre-header block inserted by LICM before the loop header.
+    LoopPreHeader(usize),
     /// Block after the loop exits.
     LoopEnd(usize),
     /// Then-branch of an if statement.
@@ -158,15 +187,9 @@ pub enum Instruction {
     /// `yield`
     Yield,
     /// `dest = get db <static_address>` — load a static variable from its home location.
-    LoadStatic {
-        dest: TempId,
-        static_id: StaticId,
-    },
+    LoadStatic { dest: TempId, static_id: StaticId },
     /// `poke <static_address> source` — store a value to a static variable's home location.
-    StoreStatic {
-        static_id: StaticId,
-        source: TempId,
-    },
+    StoreStatic { static_id: StaticId, source: TempId },
 }
 
 /// A pure operation that produces a value.
