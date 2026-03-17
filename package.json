@@ -27,6 +27,11 @@
                     "type": "string",
                     "default": "",
                     "description": "Path to the ic20-lsp binary. If empty, searches PATH for 'ic20-lsp'."
+                },
+                "ic20.compiler.path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to the ic20c compiler binary. If empty, searches PATH for 'ic20c'."
                 }
             }
         },
@@ -58,6 +63,36 @@
             {
                 "language": "ic20",
                 "path": "./snippets/ic20.json"
+            }
+        ],
+        "commands": [
+            {
+                "command": "ic20.build",
+                "title": "Build IC20 File",
+                "category": "IC20"
+            }
+        ],
+        "menus": {
+            "editor/title/run": [
+                {
+                    "command": "ic20.build",
+                    "when": "resourceLangId == ic20",
+                    "group": "navigation"
+                }
+            ],
+            "editor/context": [
+                {
+                    "command": "ic20.build",
+                    "when": "resourceLangId == ic20",
+                    "group": "ic20@1"
+                }
+            ]
+        },
+        "keybindings": [
+            {
+                "command": "ic20.build",
+                "key": "ctrl+shift+b",
+                "when": "resourceLangId == ic20 && editorFocus"
             }
         ]
     },
