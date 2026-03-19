@@ -4,3 +4,5 @@ out/
 tsconfig.json
 .gitignore
 node_modules/**
+*.vsix
+icons/icon.svg

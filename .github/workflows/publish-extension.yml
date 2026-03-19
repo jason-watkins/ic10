@@ -1,0 +1,110 @@
+name: Publish Extension
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            platform: win32-x64
+            ext: .exe
+          - os: macos-latest
+            rust-target: aarch64-apple-darwin
+            platform: darwin-arm64
+            ext: ""
+          - os: macos-latest
+            rust-target: x86_64-apple-darwin
+            platform: darwin-x64
+            ext: ""
+          - os: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+            platform: linux-x64
+            ext: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Build binaries
+        run: |
+          cargo build --release --target ${{ matrix.rust-target }} --manifest-path ic20c/Cargo.toml
+          cargo build --release --target ${{ matrix.rust-target }} --manifest-path ic20-lsp/Cargo.toml
+          cargo build --release --target ${{ matrix.rust-target }} --manifest-path ic10-lsp/Cargo.toml
+
+      - name: Stage binaries
+        shell: bash
+        run: |
+          mkdir -p staging
+          cp ic20c/target/${{ matrix.rust-target }}/release/ic20c${{ matrix.ext }} staging/ic20c-${{ matrix.platform }}${{ matrix.ext }}
+          cp ic20-lsp/target/${{ matrix.rust-target }}/release/ic20-lsp${{ matrix.ext }} staging/ic20-lsp-${{ matrix.platform }}${{ matrix.ext }}
+          cp ic10-lsp/target/${{ matrix.rust-target }}/release/ic10-lsp${{ matrix.ext }} staging/ic10-lsp-${{ matrix.platform }}${{ matrix.ext }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.platform }}
+          path: staging/
+
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [win32-x64, darwin-x64, darwin-arm64, linux-x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries-${{ matrix.platform }}
+          path: ic20-vscode/bin/
+
+      - name: Install dependencies and bundle
+        working-directory: ic20-vscode
+        run: |
+          npm ci
+          npm run bundle
+
+      - name: Package VSIX
+        working-directory: ic20-vscode
+        run: npx @vscode/vsce package --target ${{ matrix.platform }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.platform }}
+          path: ic20-vscode/*.vsix
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          merge-multiple: true
+
+      - name: Publish to Marketplace
+        run: npx @vscode/vsce publish --packagePath *.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
