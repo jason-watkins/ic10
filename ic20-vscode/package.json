@@ -3,7 +3,7 @@
     "displayName": "IC20 Language",
     "description": "Language support for IC20, a Rust-inspired language that compiles to IC10 assembly for Stationeers.",
     "version": "0.1.1",
-    "publisher": "ic20",
+    "publisher": "JasonWatkins",
     "license": "MIT",
     "repository": {
         "type": "git",
