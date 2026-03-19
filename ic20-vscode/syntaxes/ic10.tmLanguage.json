@@ -1,0 +1,218 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "IC10",
+    "scopeName": "source.ic10",
+    "patterns": [
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#hash-macro"
+        },
+        {
+            "include": "#logic-type-dot"
+        },
+        {
+            "include": "#labels"
+        },
+        {
+            "include": "#directives"
+        },
+        {
+            "include": "#branch-instructions"
+        },
+        {
+            "include": "#device-io-instructions"
+        },
+        {
+            "include": "#stack-instructions"
+        },
+        {
+            "include": "#math-instructions"
+        },
+        {
+            "include": "#trig-instructions"
+        },
+        {
+            "include": "#bitwise-instructions"
+        },
+        {
+            "include": "#comparison-instructions"
+        },
+        {
+            "include": "#utility-instructions"
+        },
+        {
+            "include": "#device-registers"
+        },
+        {
+            "include": "#indirect-device-registers"
+        },
+        {
+            "include": "#indirect-registers"
+        },
+        {
+            "include": "#registers"
+        },
+        {
+            "include": "#builtin-constants"
+        },
+        {
+            "include": "#batch-modes"
+        },
+        {
+            "include": "#numeric-literals"
+        },
+        {
+            "include": "#identifiers"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "name": "comment.line.number-sign.ic10",
+            "match": "#.*$"
+        },
+        "hash-macro": {
+            "match": "\\b(HASH)\\s*\\(\\s*(\"[^\"]*\")\\s*\\)",
+            "captures": {
+                "1": {
+                    "name": "support.function.macro.ic10"
+                },
+                "2": {
+                    "name": "string.quoted.double.ic10"
+                }
+            }
+        },
+        "logic-type-dot": {
+            "match": "\\b(LogicType)\\s*\\.\\s*([a-zA-Z_][a-zA-Z0-9_]*)",
+            "captures": {
+                "1": {
+                    "name": "support.type.logictype.ic10"
+                },
+                "2": {
+                    "name": "constant.language.logictype.ic10"
+                }
+            }
+        },
+        "labels": {
+            "match": "^\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*(:)",
+            "captures": {
+                "1": {
+                    "name": "entity.name.label.ic10"
+                },
+                "2": {
+                    "name": "punctuation.separator.colon.ic10"
+                }
+            }
+        },
+        "directives": {
+            "patterns": [
+                {
+                    "match": "^\\s*(alias)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+(r[0-9]{1,2}|ra|sp|d[0-5]|db)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.other.directive.ic10"
+                        },
+                        "2": {
+                            "name": "entity.name.variable.alias.ic10"
+                        },
+                        "3": {
+                            "name": "variable.language.register.ic10"
+                        }
+                    }
+                },
+                {
+                    "match": "^\\s*(define)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.other.directive.ic10"
+                        },
+                        "2": {
+                            "name": "entity.name.constant.ic10"
+                        }
+                    }
+                }
+            ]
+        },
+        "branch-instructions": {
+            "match": "(?:^|(?<=\\s))\\b(j|jr|jal|beq|beqz|bne|bnez|bgt|bgtz|bge|bgez|blt|bltz|ble|blez|bap|bapz|bna|bnaz|bnan|beqal|beqzal|bneal|bnezal|bgtal|bgtzal|bgeal|bgezal|bltal|bltzal|bleal|blezal|bapal|bapzal|bnaal|bnazal|breq|breqz|brne|brnez|brgt|brgtz|brge|brgez|brlt|brltz|brle|brlez|brap|brapz|brna|brnaz|brnan|bdse|bdns|bdseal|bdnsal|brdse|brdns|bdnvl|bdnvs)\\b",
+            "name": "keyword.control.branch.ic10"
+        },
+        "device-io-instructions": {
+            "match": "(?:^|(?<=\\s))\\b(l|s|ls|ss|lr|rmap|ld|sd|lb|sb|lbn|sbn|lbs|sbs|lbns)\\b",
+            "name": "keyword.other.device-io.ic10"
+        },
+        "stack-instructions": {
+            "match": "(?:^|(?<=\\s))\\b(push|pop|peek|poke|get|getd|put|putd|clr|clrd)\\b",
+            "name": "keyword.other.stack.ic10"
+        },
+        "math-instructions": {
+            "match": "(?:^|(?<=\\s))\\b(abs|add|sub|mul|div|mod|pow|exp|log|sqrt|max|min|ceil|floor|round|trunc|move|rand|lerp)\\b",
+            "name": "support.function.math.ic10"
+        },
+        "trig-instructions": {
+            "match": "(?:^|(?<=\\s))\\b(sin|cos|tan|asin|acos|atan|atan2)\\b",
+            "name": "support.function.trig.ic10"
+        },
+        "bitwise-instructions": {
+            "match": "(?:^|(?<=\\s))\\b(and|or|xor|nor|not|sll|sla|srl|sra|ext|ins)\\b",
+            "name": "support.function.bitwise.ic10"
+        },
+        "comparison-instructions": {
+            "match": "(?:^|(?<=\\s))\\b(seq|seqz|sne|snez|sgt|sgtz|sge|sgez|slt|sltz|sle|slez|sap|sapz|sna|snaz|snan|snanz|sdse|sdns|select)\\b",
+            "name": "support.function.comparison.ic10"
+        },
+        "utility-instructions": {
+            "match": "(?:^|(?<=\\s))\\b(hcf|sleep|yield)\\b",
+            "name": "keyword.control.utility.ic10"
+        },
+        "indirect-device-registers": {
+            "match": "\\b(dr[0-9]{1,2})\\b",
+            "name": "variable.language.register.indirect-device.ic10"
+        },
+        "device-registers": {
+            "match": "\\b(d[0-5]|db)\\b",
+            "name": "variable.language.register.device.ic10"
+        },
+        "indirect-registers": {
+            "match": "\\b(r{2,}[0-9]{1,2})\\b",
+            "name": "variable.language.register.indirect.ic10"
+        },
+        "registers": {
+            "match": "\\b(r[0-9]{1,2}|ra|sp)\\b",
+            "name": "variable.language.register.ic10"
+        },
+        "builtin-constants": {
+            "match": "\\b(pinf|ninf|nan)\\b",
+            "name": "constant.language.ic10"
+        },
+        "batch-modes": {
+            "match": "\\b(Average|Sum|Minimum|Maximum)\\b",
+            "name": "constant.language.batch-mode.ic10"
+        },
+        "numeric-literals": {
+            "patterns": [
+                {
+                    "name": "constant.numeric.hex.ic10",
+                    "match": "\\$[0-9a-fA-F][0-9a-fA-F_]*\\b"
+                },
+                {
+                    "name": "constant.numeric.binary.ic10",
+                    "match": "%[01][01_]*\\b"
+                },
+                {
+                    "name": "constant.numeric.float.ic10",
+                    "match": "-?[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?"
+                },
+                {
+                    "name": "constant.numeric.integer.ic10",
+                    "match": "-?[0-9][0-9_]*\\b"
+                }
+            ]
+        },
+        "identifiers": {
+            "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
+            "name": "variable.other.ic10"
+        }
+    }
+}
