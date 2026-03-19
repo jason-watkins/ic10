@@ -1,0 +1,38 @@
+name: CI — ic20-vscode
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ic20-vscode/**"
+  pull_request:
+    paths:
+      - "ic20-vscode/**"
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        working-directory: ic20-vscode
+        run: npm ci
+
+      - name: Type check
+        working-directory: ic20-vscode
+        run: npm run compile
+
+      - name: Bundle
+        working-directory: ic20-vscode
+        run: npm run bundle

@@ -1,0 +1,67 @@
+name: CI — ic10-lsp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ic10-lsp/**"
+  pull_request:
+    paths:
+      - "ic10-lsp/**"
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ic10-lsp
+          key: ci
+
+      - name: Build
+        run: cargo build --manifest-path ic10-lsp/Cargo.toml
+
+      - name: Test
+        run: cargo test --manifest-path ic10-lsp/Cargo.toml
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ic10-lsp
+          key: clippy
+
+      - name: Clippy
+        run: cargo clippy --manifest-path ic10-lsp/Cargo.toml -- -D warnings
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path ic10-lsp/Cargo.toml -- --check
