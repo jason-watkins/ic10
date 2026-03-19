@@ -1,0 +1,31 @@
+// Uses a daylight sensor to point all connected solar panels towards the sun. Assumes the sensor
+// is installed with its data port facing North, and the solar panels are installed with their
+// single or power port facing East.
+// In addition, monitors an APC connected to d1 and a solid fuel generator connected to d2 and
+// turns the generator on/off automatically to maintain charge if the solar panels aren't keeping
+// up with demand.
+device sensor: d0;
+device apc: d1;
+device generator: d2;
+
+fn main () {
+    loop {
+        let vertical = sensor.Vertical + 90.0;
+        let horizontal = sensor.Horizontal;
+
+        batch_write(hash("StructureSolarPanelDual"), Vertical, vertical);
+        batch_write(hash("StructureSolarPanelDual"), Horizontal, horizontal);
+        batch_write(hash("StructureSolarPanel"), Vertical, vertical);
+        batch_write(hash("StructureSolarPanel"), Horizontal, horizontal);
+
+        let apc_charge = apc.Ratio;
+        if apc_charge < 0.05 {
+            generator.On = true;
+        }
+        else if apc_charge > 0.75 {
+            generator.On = false;
+        }
+
+        yield;
+    }
+}

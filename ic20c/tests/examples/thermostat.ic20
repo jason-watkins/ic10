@@ -1,0 +1,16 @@
+device sensor: d0;
+device vent: d1;
+
+const THRESHOLD: f64 = 25.0;
+
+fn main() {
+    loop {
+        let temp: f64 = sensor.Temperature;
+        if temp > THRESHOLD {
+            vent.On = 1;
+        } else {
+            vent.On = 0;
+        }
+        yield;
+    }
+}
