@@ -4,10 +4,23 @@
     "description": "Language support for IC20, a Rust-inspired language that compiles to IC10 assembly for Stationeers.",
     "version": "0.1.1",
     "publisher": "ic20",
+    "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/ic20/ic20-vscode"
+        "url": "https://github.com/jason-watkins/ic10"
     },
+    "homepage": "https://github.com/jason-watkins/ic10/tree/main/ic20-vscode",
+    "bugs": {
+        "url": "https://github.com/jason-watkins/ic10/issues"
+    },
+    "keywords": [
+        "stationeers",
+        "ic20",
+        "ic10",
+        "mips",
+        "assembly",
+        "compiler"
+    ],
     "engines": {
         "vscode": "^1.85.0"
     },
@@ -16,6 +29,10 @@
         "Snippets",
         "Formatters"
     ],
+    "galleryBanner": {
+        "color": "#1e1e1e",
+        "theme": "dark"
+    },
     "icon": "icons/icon.png",
     "main": "./dist/extension.js",
     "activationEvents": [],
