@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::instructions::{InstructionSignature, OperandKind, INSTRUCTION_MAP};
+use crate::instructions::{INSTRUCTION_MAP, InstructionSignature, OperandKind};
 use crate::parser::{Line, LineKind, Span, Token};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,40 +63,40 @@ pub fn validate(lines: &[Line]) -> Vec<Diagnostic> {
                         }
                         aliases.insert(&name_token.text, name_token);
                     }
-                } else if opcode.text == "define" {
-                    if let Some(name_token) = operands.first() {
-                        if let Some(previous) = defines.get(name_token.text.as_str()) {
-                            diagnostics.push(Diagnostic {
-                                severity: Severity::Error,
-                                span: name_token.span.clone(),
-                                message: format!(
-                                    "duplicate define '{}' (first defined at line {})",
-                                    name_token.text,
-                                    line_of_span(lines, &previous.span) + 1,
-                                ),
-                            });
-                        } else {
-                            defines.insert(&name_token.text, name_token);
-                        }
+                } else if opcode.text == "define"
+                    && let Some(name_token) = operands.first()
+                {
+                    if let Some(previous) = defines.get(name_token.text.as_str()) {
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            span: name_token.span.clone(),
+                            message: format!(
+                                "duplicate define '{}' (first defined at line {})",
+                                name_token.text,
+                                line_of_span(lines, &previous.span) + 1,
+                            ),
+                        });
+                    } else {
+                        defines.insert(&name_token.text, name_token);
                     }
                 }
             }
         }
     }
 
-    if code_line_count > MAX_LINES {
-        if let Some(line) = lines.last() {
-            diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                span: Span {
-                    start: line.offset,
-                    end: line.offset + 1,
-                },
-                message: format!(
-                    "program has {code_line_count} lines, exceeding the {MAX_LINES} line limit"
-                ),
-            });
-        }
+    if code_line_count > MAX_LINES
+        && let Some(line) = lines.last()
+    {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            span: Span {
+                start: line.offset,
+                end: line.offset + 1,
+            },
+            message: format!(
+                "program has {code_line_count} lines, exceeding the {MAX_LINES} line limit"
+            ),
+        });
     }
 
     // Second pass: validate instructions
@@ -329,10 +329,10 @@ fn is_register(text: &str) -> bool {
     if text == "ra" || text == "sp" {
         return true;
     }
-    if let Some(rest) = text.strip_prefix('r') {
-        if let Ok(n) = rest.parse::<u8>() {
-            return n <= 15;
-        }
+    if let Some(rest) = text.strip_prefix('r')
+        && let Ok(n) = rest.parse::<u8>()
+    {
+        return n <= 15;
     }
     false
 }
@@ -373,20 +373,20 @@ fn is_device_connection(text: &str) -> bool {
 }
 
 fn is_indirect_device(text: &str) -> bool {
-    if let Some(rest) = text.strip_prefix("dr") {
-        if let Ok(n) = rest.parse::<u8>() {
-            return n <= 15;
-        }
+    if let Some(rest) = text.strip_prefix("dr")
+        && let Ok(n) = rest.parse::<u8>()
+    {
+        return n <= 15;
     }
     false
 }
 
 fn is_number(text: &str) -> bool {
-    if text.starts_with('$') {
-        return text.len() > 1 && text[1..].chars().all(|c| c.is_ascii_hexdigit() || c == '_');
+    if let Some(rest) = text.strip_prefix('$') {
+        return !rest.is_empty() && rest.chars().all(|c| c.is_ascii_hexdigit() || c == '_');
     }
-    if text.starts_with('%') {
-        return text.len() > 1 && text[1..].chars().all(|c| c == '0' || c == '1' || c == '_');
+    if let Some(rest) = text.strip_prefix('%') {
+        return !rest.is_empty() && rest.chars().all(|c| c == '0' || c == '1' || c == '_');
     }
     // Allow optional leading '-'
     let s = text.strip_prefix('-').unwrap_or(text);
@@ -405,10 +405,10 @@ fn is_number(text: &str) -> bool {
         } else if (c == 'e' || c == 'E') && !has_exp {
             has_exp = true;
             chars.next();
-            if let Some(&sign) = chars.peek() {
-                if sign == '+' || sign == '-' {
-                    chars.next();
-                }
+            if let Some(&sign) = chars.peek()
+                && (sign == '+' || sign == '-')
+            {
+                chars.next();
             }
         } else {
             return false;
