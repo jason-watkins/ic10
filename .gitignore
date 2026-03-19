@@ -5,3 +5,5 @@ examples/*.ic10
 out/
 node_modules/
 *.vsix
+
+ic20-vscode/bin
