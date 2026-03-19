@@ -66,9 +66,9 @@ try {
     npm ci
     if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
 
-    Write-Host "==> Compiling TypeScript..."
-    npx tsc -p ./
-    if ($LASTEXITCODE -ne 0) { throw "tsc failed" }
+    Write-Host "==> Bundling extension..."
+    npm run bundle
+    if ($LASTEXITCODE -ne 0) { throw "esbuild failed" }
 
     Write-Host "==> Packaging VSIX..."
     npx vsce package
