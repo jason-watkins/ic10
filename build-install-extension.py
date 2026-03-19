@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds the IC20 VS Code extension, including the compiler, LSPs, and VSIX package."""
+"""Builds and locally installs the IC20 VS Code extension, including the compiler, LSPs, and VSIX package."""
 
 import os
 import platform
