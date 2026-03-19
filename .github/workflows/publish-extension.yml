@@ -38,6 +38,14 @@ jobs:
         with:
           targets: ${{ matrix.rust-target }}
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ic20c
+            ic20-lsp
+            ic10-lsp
+          key: ${{ matrix.rust-target }}
+
       - name: Build binaries
         run: |
           cargo build --release --target ${{ matrix.rust-target }} --manifest-path ic20c/Cargo.toml
