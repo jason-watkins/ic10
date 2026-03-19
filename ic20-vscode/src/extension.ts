@@ -9,6 +9,7 @@ import {
 } from "vscode-languageclient/node";
 
 let client: LanguageClient | undefined;
+let ic10Client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -64,6 +65,46 @@ export async function activate(context: vscode.ExtensionContext) {
             `Could not start IC20 language server ('${command}'). ` +
             "Diagnostics, hover, and go-to-definition will be unavailable. " +
             "Set ic20.lsp.path in settings or add ic20-lsp to your PATH."
+        );
+    }
+
+    const ic10Config = vscode.workspace.getConfiguration("ic10.lsp");
+    const ic10ConfiguredPath = ic10Config.get<string>("path", "");
+
+    let ic10Command: string;
+    if (ic10ConfiguredPath) {
+        ic10Command = ic10ConfiguredPath;
+    } else {
+        const ext = process.platform === "win32" ? ".exe" : "";
+        const bundledName = `ic10-lsp-${process.platform}-${process.arch}${ext}`;
+        const bundledPath = path.join(context.extensionPath, "bin", bundledName);
+        ic10Command = fs.existsSync(bundledPath) ? bundledPath : "ic10-lsp";
+    }
+
+    const ic10ServerOptions: ServerOptions = {
+        command: ic10Command,
+        args: [],
+    };
+
+    const ic10ClientOptions: LanguageClientOptions = {
+        documentSelector: [{ scheme: "file", language: "ic10" }],
+    };
+
+    ic10Client = new LanguageClient(
+        "ic10-lsp",
+        "IC10 Language Server",
+        ic10ServerOptions,
+        ic10ClientOptions
+    );
+
+    try {
+        await ic10Client.start();
+    } catch {
+        ic10Client = undefined;
+        vscode.window.showWarningMessage(
+            `Could not start IC10 language server ('${ic10Command}'). ` +
+            "Diagnostics, hover, and go-to-definition will be unavailable. " +
+            "Set ic10.lsp.path in settings or add ic10-lsp to your PATH."
         );
     }
 }
@@ -150,9 +191,10 @@ function resolveCompilerPath(context: vscode.ExtensionContext): string {
 }
 
 export async function deactivate() {
-    if (client) {
-        await client.stop();
-    }
+    await Promise.all([
+        client?.stop(),
+        ic10Client?.stop(),
+    ]);
 }
 
 function formatDocument(
