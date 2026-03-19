@@ -51,6 +51,7 @@
         "brne",
         "brnez",
         "callees",
+        "clippy",
         "clrd",
         "coalescable",
         "codegen",

@@ -1,0 +1,67 @@
+name: CI — ic20c
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ic20c/**"
+  pull_request:
+    paths:
+      - "ic20c/**"
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ic20c
+          key: ci
+
+      - name: Build
+        run: cargo build --manifest-path ic20c/Cargo.toml
+
+      - name: Test
+        run: cargo test --manifest-path ic20c/Cargo.toml
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ic20c
+          key: clippy
+
+      - name: Clippy
+        run: cargo clippy --manifest-path ic20c/Cargo.toml -- -D warnings
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path ic20c/Cargo.toml -- --check
