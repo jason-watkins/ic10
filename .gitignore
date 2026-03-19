@@ -1,3 +1,7 @@
 target/
 
 examples/*.ic10
+
+out/
+node_modules/
+*.vsix
